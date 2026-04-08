@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>元素骰境：石像守卫</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero-panel">
+      <div>
+        <p id="heroEyebrow" class="eyebrow">世界地图 / 第一章</p>
+        <h1 id="heroTitle">元素骰境</h1>
+        <p id="heroSubtitle" class="subtitle">
+          穿越迷雾森林、冰雪荒原、熔岩地窟与末日城堡。先从第一关开始，后续区域将逐步解锁。
+        </p>
+      </div>
+      <div class="top-actions">
+        <div class="gold-display">
+          <span>金币</span>
+          <strong id="goldCount">0</strong>
+        </div>
+        <button id="mapButton" class="secondary-button hidden-control" type="button">返回地图</button>
+        <button id="pauseButton" class="secondary-button" type="button">暂停</button>
+        <button id="helpButton" class="secondary-button" type="button">帮助</button>
+        <button id="restartButton" class="secondary-button" type="button">重新开始</button>
+        <button id="audioButton" class="secondary-button" type="button">音效：开</button>
+      </div>
+    </header>
+
+    <section id="mapView" class="map-view">
+      <article class="map-overview-card">
+        <div>
+          <p class="board-label">远征路线</p>
+          <h2 id="mapRegionTitle">迷雾森林</h2>
+          <p id="mapRegionText" class="subtitle">
+            潮湿迷雾缠绕着古树和遗迹，第一批试炼就隐藏在断裂石径的尽头。
+          </p>
+        </div>
+        <div class="map-overview-pills">
+          <span class="map-overview-pill">4 张地图</span>
+          <span class="map-overview-pill">每页 10 个地点</span>
+          <span class="map-overview-pill">当前仅开放第一关</span>
+        </div>
+      </article>
+
+      <article id="mapCard" class="map-card theme-forest">
+        <div class="map-topbar">
+          <div>
+            <p class="board-label">关卡地图</p>
+            <h3 id="mapPageTitle">迷雾森林</h3>
+            <p id="mapPageMeta" class="combo-description">第 1 页 / 共 4 页</p>
+          </div>
+          <div class="map-pager">
+            <button id="mapPrevButton" class="ghost-button" type="button">上一页</button>
+            <button id="mapNextButton" class="ghost-button" type="button">下一页</button>
+          </div>
+        </div>
+
+        <div id="mapChapterRow" class="map-chapter-row" aria-label="地图分页"></div>
+
+        <div id="mapScene" class="map-scene theme-forest">
+          <div class="map-atmosphere"></div>
+          <svg id="mapPathSvg" class="map-paths" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div id="mapNodes" class="map-nodes"></div>
+        </div>
+
+        <div class="map-footbar">
+          <div id="mapHint" class="map-hint">点击第一关节点进入战斗，其他地点先以问号形式占位。</div>
+          <div class="map-legend">
+            <span class="legend-chip active">已设计</span>
+            <span class="legend-chip locked">待设计</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="eventView" class="event-view hidden-view">
+      <article id="eventCard" class="event-card">
+        <div class="event-hero">
+          <div>
+            <p id="eventEyebrow" class="eyebrow">地点事件 / 宝藏箱</p>
+            <h2 id="eventTitle">林间宝藏箱</h2>
+            <p id="eventText" class="subtitle">
+              断裂石碑旁放着一只古老箱匣。它会在六种奖励里抽出三种，你只能挑走其中一个。
+            </p>
+          </div>
+          <button id="eventBackButton" class="ghost-button" type="button">返回地图</button>
+        </div>
+        <div id="eventStatus" class="event-status"></div>
+        <div id="rewardChoices" class="reward-choices"></div>
+      </article>
+    </section>
+
+    <main id="battleView" class="battle-layout hidden-view">
+      <section class="combatants">
+        <article class="status-card player-card">
+          <div class="portrait player-portrait">
+            <div class="player-halo"></div>
+            <div class="player-hood"></div>
+            <div class="player-face">
+              <span class="player-eye player-eye-left"></span>
+              <span class="player-eye player-eye-right"></span>
+              <span class="player-mark"></span>
+            </div>
+            <div class="player-shoulder player-shoulder-left"></div>
+            <div class="player-shoulder player-shoulder-right"></div>
+            <div class="player-core"></div>
+            <span>旅者</span>
+          </div>
+          <div class="status-info">
+            <div class="status-head">
+              <h2>玩家</h2>
+              <span id="turnCounter" class="turn-chip">回合 1 / 6</span>
+            </div>
+            <div class="meter-group">
+              <div class="meter-label">
+                <span>生命</span>
+                <span id="playerHpLabel">100 / 100</span>
+              </div>
+              <div class="meter hp-meter">
+                <div id="playerHpBar" class="meter-fill player-fill"></div>
+              </div>
+            </div>
+            <div class="buff-row">
+              <div class="buff">
+                <span class="buff-name">金属化</span>
+                <strong id="metalState">未激活</strong>
+              </div>
+              <div class="buff">
+                <span class="buff-name">土流盾</span>
+                <strong id="shieldState">0 / 0</strong>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="status-card boss-card">
+          <div class="portrait boss-portrait">
+            <div class="boss-horn boss-horn-left"></div>
+            <div class="boss-horn boss-horn-right"></div>
+            <div class="boss-shoulder boss-shoulder-left"></div>
+            <div class="boss-shoulder boss-shoulder-right"></div>
+            <div class="boss-upperarm boss-upperarm-left"></div>
+            <div class="boss-upperarm boss-upperarm-right"></div>
+            <div class="boss-forearm boss-forearm-left"></div>
+            <div class="boss-forearm boss-forearm-right"></div>
+            <div class="boss-fist boss-fist-left"></div>
+            <div class="boss-fist boss-fist-right"></div>
+            <div class="boss-neck"></div>
+            <div class="boss-core"></div>
+            <div class="boss-lava boss-lava-chest"></div>
+            <div class="boss-lava boss-lava-left"></div>
+            <div class="boss-lava boss-lava-right"></div>
+            <div class="boss-face">
+              <span class="boss-eye boss-eye-left"></span>
+              <span class="boss-eye boss-eye-right"></span>
+              <span class="boss-mouth"></span>
+            </div>
+            <span>石像守卫</span>
+          </div>
+          <div class="status-info">
+            <div class="status-head">
+              <h2>石像守卫</h2>
+              <span id="bossIntent" class="intent-chip">预告中</span>
+            </div>
+            <div class="meter-group">
+              <div class="meter-label">
+                <span>生命</span>
+                <span id="bossHpLabel">200 / 200</span>
+              </div>
+              <div class="meter hp-meter">
+                <div id="bossHpBar" class="meter-fill boss-fill"></div>
+              </div>
+            </div>
+            <div class="buff-row">
+              <div class="buff">
+                <span class="buff-name">冻结效果</span>
+                <strong id="freezeState">无</strong>
+              </div>
+              <div class="buff">
+                <span class="buff-name">Boss 提示</span>
+                <strong id="bossState">石纹微震</strong>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="forecast-card">
+        <div class="forecast-core">
+          <p class="board-label">Boss 预告</p>
+          <div class="forecast-row">
+            <div id="forecastIcon" class="forecast-icon">✦</div>
+            <div class="forecast-copy">
+              <h3 id="forecastTitle">石像守卫正在观察你</h3>
+              <p id="forecastText" class="combo-description">下一招将在你的回合中被提前看见，方便你决定是否要保命或强杀。</p>
+            </div>
+            <div id="forecastBadge" class="forecast-badge">待揭示</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-card">
+        <p class="board-label">新手提示</p>
+        <div class="guide-row">
+          <div class="guide-icon">?</div>
+          <div>
+            <h3 id="guideTitle">先观察 Boss 的下一招</h3>
+            <p id="guideText" class="combo-description">预告条会告诉你它下一回合要做什么。看到蓄力攻击时，优先考虑金属化或土流盾。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="board-card">
+        <div class="board-top">
+          <div>
+            <p class="board-label">当前骰池</p>
+            <h3>选择骰子后可重掷或打出</h3>
+          </div>
+          <div class="resource-group">
+            <div class="resource-pill">
+              <span>重掷次数</span>
+              <strong id="rerollCounter">5</strong>
+            </div>
+            <div class="resource-pill">
+              <span>出骰机会</span>
+              <strong id="playCounter">6</strong>
+            </div>
+          </div>
+        </div>
+
+        <div id="diceGrid" class="dice-grid" aria-live="polite"></div>
+
+        <div class="controls">
+          <button id="rerollButton" class="primary-button" type="button">重掷所选骰子</button>
+          <button id="playButton" class="accent-button" type="button">打出所选骰子</button>
+          <button id="clearButton" class="ghost-button" type="button">清空选择</button>
+        </div>
+
+        <div class="combo-panel">
+          <div>
+            <p class="board-label">技能预览</p>
+            <h3 id="comboTitle">尚未选中骰子</h3>
+            <p id="comboDescription" class="combo-description">
+              选中 3 颗同元素骰可释放技能，选中 5 颗以太骰可直接终结 Boss。
+            </p>
+          </div>
+          <div id="selectionSummary" class="selection-summary">当前未选择骰子</div>
+        </div>
+      </section>
+
+      <section class="inventory-card panel-card">
+        <div class="inventory-grid">
+          <article class="inventory-pane">
+            <div class="log-head compact-head">
+              <div>
+                <p class="board-label">道具栏</p>
+                <h3>关卡道具</h3>
+              </div>
+              <span class="phase-badge">战斗内生效</span>
+            </div>
+            <div id="itemBar" class="item-bar"></div>
+          </article>
+          <article class="inventory-pane relic-pane">
+            <div class="log-head compact-head">
+              <div>
+                <p class="board-label">圣物栏</p>
+                <h3>全局圣物</h3>
+              </div>
+              <span class="phase-badge">整局生效</span>
+            </div>
+            <div id="relicBar" class="item-bar relic-bar"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="info-layout">
+        <article class="panel-card rules-card">
+          <p class="board-label">技能列表</p>
+          <ul id="skillList" class="skill-list"></ul>
+        </article>
+
+        <article class="panel-card medium-skill-card">
+          <p class="board-label">已学中级技能</p>
+          <ul id="mediumSkillList" class="skill-list"></ul>
+        </article>
+
+        <article class="panel-card boss-rules-card">
+          <p class="board-label">Boss 规则</p>
+          <ul class="skill-list">
+            <li><strong>普通攻击</strong>：20 伤害，50% 概率</li>
+            <li><strong>蓄力攻击</strong>：50 伤害，20% 概率</li>
+            <li><strong>生命恢复</strong>：回复 30 生命，30% 概率</li>
+            <li><strong>失败条件</strong>：玩家生命归零，或第 6 回合结束后 Boss 仍存活</li>
+          </ul>
+        </article>
+
+        <article class="panel-card log-card">
+          <div class="log-head">
+            <div>
+              <p class="board-label">战斗日志</p>
+              <h3>战场回响</h3>
+            </div>
+            <span id="phaseBadge" class="phase-badge">玩家回合</span>
+          </div>
+          <div id="battleLog" class="battle-log" aria-live="polite"></div>
+        </article>
+      </section>
+    </main>
+
+    <div id="fxStage" class="fx-stage" aria-hidden="true"></div>
+    <div id="toast" class="toast" role="status" aria-live="assertive"></div>
+    <div id="helpPanel" class="help-panel hidden">
+      <div class="help-card">
+        <div class="help-head">
+          <div>
+            <p class="board-label">帮助面板</p>
+            <h3>如何通过第一关</h3>
+          </div>
+          <button id="closeHelpButton" class="ghost-button" type="button">关闭</button>
+        </div>
+        <div class="help-grid">
+          <article class="help-block">
+            <h4>基础规则</h4>
+            <p>每次你打出一批骰子后，只有那几颗会重新掷出。场上没选中的骰子会保留下来。</p>
+          </article>
+          <article class="help-block">
+            <h4>对付重击</h4>
+            <p>看到 Boss 预告蓄力攻击时，优先找三个金或三个土。金属化最稳，土流盾次之。</p>
+          </article>
+          <article class="help-block">
+            <h4>抢节奏</h4>
+            <p>Boss 准备生命恢复时，是你打火焰弹、冰霜冲击或创世之光的最佳窗口。</p>
+          </article>
+          <article class="help-block">
+            <h4>收尾建议</h4>
+            <p>火和水都能快速压血，木能稳住血线，以太则是直接终结。根据预告决定保命还是斩杀。</p>
+          </article>
+        </div>
+      </div>
+    </div>
+    <div id="pauseOverlay" class="pause-overlay hidden">
+      <div class="pause-card">
+        <p class="eyebrow">游戏暂停</p>
+        <h2>战斗已暂停</h2>
+        <p>你可以先看帮助、整理思路，再继续应对石像守卫。</p>
+        <div class="pause-actions">
+          <button id="resumeButton" class="accent-button" type="button">继续战斗</button>
+          <button id="pauseHelpButton" class="secondary-button" type="button">查看帮助</button>
+        </div>
+      </div>
+    </div>
+    <div id="overlay" class="overlay hidden">
+      <div class="overlay-card">
+        <p class="eyebrow" id="overlayEyebrow">战斗结束</p>
+        <h2 id="overlayTitle">挑战成功</h2>
+        <p id="overlayText">你击碎了石像守卫的核心。</p>
+        <button id="overlayButton" class="accent-button" type="button">再来一局</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./script.js"></script>
+</body>
+</html>
