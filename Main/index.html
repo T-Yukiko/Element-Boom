@@ -93,6 +93,61 @@
       </article>
     </section>
 
+    <section id="shopView" class="shop-view hidden-view">
+      <article class="shop-card">
+        <div class="shop-hero">
+          <div class="shop-copy">
+            <p id="shopEyebrow" class="eyebrow">商店 / 星辉行馆</p>
+            <h2 id="shopTitle">迷雾森林补给站</h2>
+            <p id="shopText" class="subtitle">
+              铜灯、药柜与遗器匣在穹顶下闪着微光。你可以在这里补充药丸、购买一张中级技能卡，或从本次陈列的两件圣物中挑选需要的成长路线。
+            </p>
+          </div>
+          <div class="shop-hero-actions">
+            <button id="shopBackButton" class="ghost-button" type="button">返回地图</button>
+            <button id="shopLeaveButton" class="accent-button" type="button">离开商店</button>
+          </div>
+        </div>
+
+        <div id="shopStatus" class="shop-status"></div>
+
+        <div class="shop-layout">
+          <section class="shop-pane">
+            <div class="shop-pane-head">
+              <div>
+                <p class="board-label">药剂柜台</p>
+                <h3>基础药丸</h3>
+              </div>
+              <span class="shop-note">每颗 4 金币 / 无限购买</span>
+            </div>
+            <div id="shopConsumables" class="shop-grid"></div>
+          </section>
+
+          <section class="shop-pane skill-pane">
+            <div class="shop-pane-head">
+              <div>
+                <p class="board-label">秘术柜</p>
+                <h3>中级技能卡</h3>
+              </div>
+              <span class="shop-note">仅限 1 张 / 6 金币</span>
+            </div>
+            <div id="shopSkillCard" class="shop-skill-slot"></div>
+          </section>
+
+          <section class="shop-pane relic-pane-large">
+            <div class="shop-pane-head">
+              <div>
+                <p class="board-label">圣物陈列</p>
+                <h3>本次随机售卖两件</h3>
+              </div>
+              <span class="shop-note">每件 10 金币</span>
+            </div>
+            <div id="shopRelics" class="shop-relic-grid"></div>
+          </section>
+        </div>
+      </article>
+    </section>
+
     <main id="battleView" class="battle-layout hidden-view">
       <section class="combatants">
         <article class="status-card player-card">

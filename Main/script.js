@@ -17,8 +17,17 @@ const FIRST_LEVEL_CLEAR_GOLD = 4;
 const THIRD_LEVEL_CLEAR_GOLD = 6;
 const COIN_BAG_GOLD = 5;
 const TREASURE_DRAW_COUNT = 3;
+const SHOP_ITEM_PRICE = 4;
+const SHOP_SKILL_CARD_PRICE = 6;
+const SHOP_RELIC_PRICE = 10;
 const MAP_THEMES = ["theme-forest", "theme-tundra", "theme-lava", "theme-castle"];
-const NODE_KEYS = { forest_1_1: "forest_1_1", forest_1_2: "forest_1_2", forest_1_3: "forest_1_3" };
+const NODE_KEYS = {
+  forest_1_1: "forest_1_1",
+  forest_1_2: "forest_1_2",
+  forest_1_3: "forest_1_3",
+  forest_1_4: "forest_1_4",
+  forest_1_5: "forest_1_5",
+};
 
 const MAP_PAGES = [
   {
@@ -79,6 +88,69 @@ const RELIC_DEFS = {
     short: "重掷 +1",
     icon: "瞳",
     description: "整轮游戏生效。所有关卡的基础重掷次数永久 +1。",
+  },
+};
+
+const SHOP_RELIC_DEFS = {
+  hero_chain: {
+    id: "hero_chain",
+    name: "勇者之链",
+    short: "每关出骰 +1",
+    icon: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="chainGold" x1="0" x2="1">
+            <stop offset="0%" stop-color="#fff1bf" />
+            <stop offset="100%" stop-color="#d7a84f" />
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke="url(#chainGold)" stroke-width="6" stroke-linecap="round">
+          <path d="M22 22c4-4 10-4 14 0s4 10 0 14l-8 8c-4 4-10 4-14 0s-4-10 0-14" />
+          <path d="M42 42c-4 4-10 4-14 0s-4-10 0-14l8-8c4-4 10-4 14 0s4 10 0 14" />
+        </g>
+      </svg>
+    `,
+    description: "永久生效。每个战斗关会在基础出骰次数上额外增加 1 次行动回合。",
+  },
+  starlight_eye: {
+    id: "starlight_eye",
+    name: "星光之眼",
+    short: "开局必有三同",
+    icon: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <radialGradient id="starEyeCore" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#fefefe" />
+            <stop offset="55%" stop-color="#9ad4ff" />
+            <stop offset="100%" stop-color="#436bba" />
+          </radialGradient>
+        </defs>
+        <path d="M8 32c7-10 15-15 24-15s17 5 24 15c-7 10-15 15-24 15S15 42 8 32Z" fill="none" stroke="#dcecff" stroke-width="4"/>
+        <circle cx="32" cy="32" r="10" fill="url(#starEyeCore)" />
+        <path d="M32 16l2.5 6.5L41 25l-6.5 2.5L32 34l-2.5-6.5L23 25l6.5-2.5Z" fill="#fff3b5" opacity="0.95"/>
+      </svg>
+    `,
+    description: "永久生效。每次战斗开始时，初始骰子池一定至少出现 3 颗相同的骰子。",
+  },
+  night_cloak: {
+    id: "night_cloak",
+    name: "暗夜斗篷",
+    short: "首伤免疫",
+    icon: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="cloakNight" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#bcc6ff" />
+            <stop offset="45%" stop-color="#5360a8" />
+            <stop offset="100%" stop-color="#171d38" />
+          </linearGradient>
+        </defs>
+        <path d="M32 10c6 7 12 10 18 11-1 17-5 27-18 33C19 48 15 38 14 21c6-1 12-4 18-11Z" fill="url(#cloakNight)" />
+        <path d="M32 10v44" stroke="rgba(255,255,255,0.28)" stroke-width="2" />
+        <circle cx="43" cy="20" r="3" fill="#eef3ff" />
+      </svg>
+    `,
+    description: "永久生效。每个战斗关中，你受到的第一次伤害会被完全免疫。",
   },
 };
 
@@ -149,6 +221,7 @@ const dom = {
   heroSubtitle: document.querySelector("#heroSubtitle"),
   mapView: document.querySelector("#mapView"),
   eventView: document.querySelector("#eventView"),
+  shopView: document.querySelector("#shopView"),
   battleView: document.querySelector("#battleView"),
   mapButton: document.querySelector("#mapButton"),
   pauseButton: document.querySelector("#pauseButton"),
@@ -174,6 +247,15 @@ const dom = {
   eventBackButton: document.querySelector("#eventBackButton"),
   eventStatus: document.querySelector("#eventStatus"),
   rewardChoices: document.querySelector("#rewardChoices"),
+  shopEyebrow: document.querySelector("#shopEyebrow"),
+  shopTitle: document.querySelector("#shopTitle"),
+  shopText: document.querySelector("#shopText"),
+  shopStatus: document.querySelector("#shopStatus"),
+  shopConsumables: document.querySelector("#shopConsumables"),
+  shopSkillCard: document.querySelector("#shopSkillCard"),
+  shopRelics: document.querySelector("#shopRelics"),
+  shopBackButton: document.querySelector("#shopBackButton"),
+  shopLeaveButton: document.querySelector("#shopLeaveButton"),
   turnCounter: document.querySelector("#turnCounter"),
   bossPortrait: document.querySelector(".boss-portrait"),
   playerHpLabel: document.querySelector("#playerHpLabel"),
@@ -228,10 +310,13 @@ const state = {
   currentBattleConfig: null,
   currentEvent: null,
   eventChoices: [],
+  shopStockRelics: [],
+  shopSkillCardPurchased: false,
   completedNodes: new Set(),
   gold: 0,
   inventory: { blue_pill: 0, red_pill: 0, green_pill: 0, yellow_pill: 0 },
   relics: new Set(),
+  shopRelics: new Set(),
   learnedMediumSkills: new Set(),
   audioEnabled: true,
   paused: false,
@@ -258,6 +343,7 @@ const state = {
   shieldTurns: 0,
   bossFrozen: false,
   bossDamageReduction: 0,
+  cloakGuard: false,
   nextBossAction: null,
 };
 
@@ -1362,7 +1448,7 @@ function checkBattleEnd(forceTurnCheck = false) {
         state.overlayAction = "treasure";
       } else if (state.currentBattleConfig?.rewardType === "wolf_relic") {
         relic = grantRandomWolfRelic();
-        state.overlayAction = "map";
+        state.overlayAction = firstClear && state.currentBattleKey === NODE_KEYS.forest_1_3 ? "shop" : "map";
       } else {
         state.overlayAction = "map";
       }
@@ -1381,6 +1467,7 @@ function checkBattleEnd(forceTurnCheck = false) {
       dom.overlayText.textContent = firstClear ? `你完成了首关挑战，并获得 ${FIRST_LEVEL_CLEAR_GOLD} 枚金币。接下来会进入第 2 个地点的宝箱事件。` : "你再次击败了石像守卫，可以返回地图继续查看路线。";
       dom.overlayButton.textContent = firstClear ? "进入第 2 地点" : "返回地图";
     }
+    if (state.overlayAction === "shop") dom.overlayButton.textContent = "进入商店";
     dom.overlay.classList.remove("hidden");
     addLog("system", `战斗结束。你成功击败了 ${state.currentBattleConfig?.bossName || "Boss"}。`);
     playSound("win");
@@ -1648,6 +1735,1132 @@ function returnToMap() {
   setView("map");
 }
 
+MAP_PAGES[0].hint = "点击 1-1 进入首战，随后依次解锁 1-2 宝箱、1-3 迅猛狼群、1-4 商店，以及后续的 1-5 节点。";
+
+function spendGold(amount) {
+  if (state.gold < amount) return false;
+  addGold(-amount);
+  return true;
+}
+
+function shuffleArray(values) {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function createStartingDicePool() {
+  const dice = Array.from({ length: DICE_COUNT }, (_, index) => createDie(index));
+  if (!state.shopRelics.has("starlight_eye")) return dice;
+  const boosted = randomElement();
+  const faces = shuffleArray([boosted, boosted, boosted, randomElement(), randomElement()]);
+  return faces.map((face, index) => ({ id: `die-${index + 1}`, face }));
+}
+
+function ensureShopStock() {
+  if (!state.shopStockRelics.length) {
+    const pool = Object.keys(SHOP_RELIC_DEFS).filter((id) => !state.shopRelics.has(id));
+    const fallback = Object.keys(SHOP_RELIC_DEFS);
+    state.shopStockRelics = randomPick(pool.length >= 2 ? pool : fallback, 2);
+  }
+}
+
+function openShop() {
+  if (!hasCompleted(NODE_KEYS.forest_1_3)) {
+    showToast("先完成 1-3，商店才会开放。");
+    return;
+  }
+  ensureShopStock();
+  renderShop();
+  setView("shop");
+}
+
+function leaveShop() {
+  if (!hasCompleted(NODE_KEYS.forest_1_4)) completeNode(NODE_KEYS.forest_1_4);
+  renderMap();
+  renderRelicBar();
+  setView("map");
+  showToast("你离开了商店，前方的 1-5 节点已经亮起。");
+}
+
+function shopStatusCards() {
+  return [
+    {
+      label: "当前金币",
+      value: `${state.gold}`,
+      text: "金币会在购买后立刻扣除，可以自由搭配药丸、技能卡和圣物。",
+    },
+    {
+      label: "中级技能",
+      value: `${state.learnedMediumSkills.size}`,
+      text: state.shopSkillCardPurchased ? "本次商店的技能卡已经购买。" : "本次商店还能再购买 1 张技能卡。",
+    },
+    {
+      label: "商店圣物",
+      value: `${state.shopRelics.size}`,
+      text: state.shopRelics.size ? "商店圣物会在后续所有战斗关持续提供增益。" : "本次还没有购买商店专属圣物。",
+    },
+    {
+      label: "陈列圣物",
+      value: `${state.shopStockRelics.length}`,
+      text: "本次商店会从独立圣物池中随机摆出 2 件，买过的不会重复出现在后续陈列里。",
+    },
+  ];
+}
+
+function renderShopStatus() {
+  dom.shopStatus.innerHTML = shopStatusCards().map((card) => `
+    <article class="shop-status-card">
+      <span class="event-status-label">${card.label}</span>
+      <strong>${card.value}</strong>
+      <p>${card.text}</p>
+    </article>
+  `).join("");
+}
+
+function renderShopConsumables() {
+  dom.shopConsumables.innerHTML = "";
+  ["blue_pill", "red_pill", "green_pill", "yellow_pill"].forEach((itemId) => {
+    const item = ITEM_DEFS[itemId];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `shop-product ${item.css}`;
+    button.disabled = state.gold < SHOP_ITEM_PRICE;
+    button.innerHTML = `
+      <div class="shop-product-top">
+        <div class="shop-icon">${item.icon}</div>
+        <div class="shop-price">${SHOP_ITEM_PRICE} 金币</div>
+      </div>
+      <div>
+        <h3>${item.name}</h3>
+        <p>${item.description}</p>
+      </div>
+      <div class="shop-tag-row">
+        <span class="shop-tag">消耗品</span>
+        <span class="shop-tag">${item.short}</span>
+      </div>
+      <div class="shop-stock">
+        <span>当前持有 x${state.inventory[item.id] || 0}</span>
+        <span>无限购买</span>
+      </div>
+    `;
+    button.addEventListener("click", () => buyShopItem(itemId));
+    dom.shopConsumables.append(button);
+  });
+}
+
+function renderShopSkillCard() {
+  const soldOut = state.shopSkillCardPurchased || !availableMediumSkills().length;
+  dom.shopSkillCard.innerHTML = "";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "shop-skill-card";
+  button.disabled = soldOut || state.gold < SHOP_SKILL_CARD_PRICE;
+  button.innerHTML = `
+    <div class="shop-product-top">
+      <div class="shop-icon">技</div>
+      <div class="shop-price">${SHOP_SKILL_CARD_PRICE} 金币</div>
+    </div>
+    <div>
+      <h3>中级技能卡</h3>
+      <p>购买后永久随机学会 1 个当前尚未掌握的中级技能。现有技能池为五种，后续仍可继续扩充。</p>
+    </div>
+    <div class="shop-tag-row">
+      <span class="shop-tag">永久成长</span>
+      <span class="shop-tag">限购 1 张</span>
+    </div>
+    <div class="shop-stock">
+      <span>${soldOut ? "已售罄" : `剩余可学 ${availableMediumSkills().length} 种`}</span>
+      <span>${state.shopSkillCardPurchased ? "本次已购买" : "可购买"}</span>
+    </div>
+  `;
+  button.addEventListener("click", buyShopSkillCard);
+  dom.shopSkillCard.append(button);
+}
+
+function renderShopRelics() {
+  dom.shopRelics.innerHTML = "";
+  ensureShopStock();
+  state.shopStockRelics.forEach((relicId) => {
+    const relic = SHOP_RELIC_DEFS[relicId];
+    const owned = state.shopRelics.has(relicId);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "shop-relic-card";
+    button.disabled = owned || state.gold < SHOP_RELIC_PRICE;
+    button.innerHTML = `
+      <div class="shop-product-top">
+        <div class="shop-icon shop-relic-icon">${relic.icon}</div>
+        <div class="shop-price">${SHOP_RELIC_PRICE} 金币</div>
+      </div>
+      <div>
+        <h3>${relic.name}</h3>
+        <p>${relic.description}</p>
+      </div>
+      <div class="shop-tag-row">
+        <span class="shop-tag">商店圣物</span>
+        <span class="shop-tag">${relic.short}</span>
+      </div>
+      <div class="shop-stock">
+        <span>${owned ? "已购入" : "本次陈列"}</span>
+        <span>${owned ? "永久生效" : "可购买"}</span>
+      </div>
+    `;
+    button.addEventListener("click", () => buyShopRelic(relicId));
+    dom.shopRelics.append(button);
+  });
+}
+
+function renderShop() {
+  renderShopStatus();
+  renderShopConsumables();
+  renderShopSkillCard();
+  renderShopRelics();
+}
+
+function buyShopItem(itemId) {
+  if (!spendGold(SHOP_ITEM_PRICE)) {
+    showToast("金币不足。");
+    return;
+  }
+  addItem(itemId, 1);
+  showToast(`购入 ${ITEM_DEFS[itemId].name}。`);
+  playSound("item");
+  renderShop();
+  renderItemBar();
+}
+
+function buyShopSkillCard() {
+  if (state.shopSkillCardPurchased) {
+    showToast("这张技能卡已经卖完了。");
+    return;
+  }
+  if (!availableMediumSkills().length) {
+    showToast("当前已经学会全部中级技能。");
+    return;
+  }
+  if (!spendGold(SHOP_SKILL_CARD_PRICE)) {
+    showToast("金币不足。");
+    return;
+  }
+  state.shopSkillCardPurchased = true;
+  const result = learnRandomMediumSkill();
+  showToast(result.toast);
+  addLog("system", `你在商店中购入了 <strong>中级技能卡</strong>。${result.log}`);
+  playSound("skill");
+  renderShop();
+  renderSkillsPanel();
+}
+
+function buyShopRelic(relicId) {
+  if (state.shopRelics.has(relicId)) {
+    showToast("这件圣物已经购入。");
+    return;
+  }
+  if (!spendGold(SHOP_RELIC_PRICE)) {
+    showToast("金币不足。");
+    return;
+  }
+  state.shopRelics.add(relicId);
+  showToast(`购入商店圣物：${SHOP_RELIC_DEFS[relicId].name}`);
+  addLog("system", `你从商店购入了圣物 <strong>${SHOP_RELIC_DEFS[relicId].name}</strong>。${SHOP_RELIC_DEFS[relicId].description}`);
+  playSound("win");
+  renderShop();
+  renderRelicBar();
+}
+
+function currentNodeDefinitions() {
+  return {
+    [NODE_KEYS.forest_1_1]: {
+      label: "1-1<br>石像守卫",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? "completed" : "active",
+      onClick: startFirstLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
+    [NODE_KEYS.forest_1_2]: {
+      label: hasCompleted(NODE_KEYS.forest_1_2) ? "1-2<br>已开启" : "1-2<br>宝箱",
+      icon: "chest",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? (hasCompleted(NODE_KEYS.forest_1_2) ? "completed" : "active") : "locked",
+      onClick: openTreasureEvent,
+      onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
+    },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通过" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
+    [NODE_KEYS.forest_1_4]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-4<br>已到访" : "1-4<br>商店",
+      icon: "shop",
+      state: hasCompleted(NODE_KEYS.forest_1_3) ? (hasCompleted(NODE_KEYS.forest_1_4) ? "completed" : "active") : "locked",
+      onClick: openShop,
+      onCompletedClick: openShop,
+    },
+    [NODE_KEYS.forest_1_5]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-5<br>即将开放" : "1-5<br>未解锁",
+      icon: "gate",
+      state: hasCompleted(NODE_KEYS.forest_1_4) ? "active" : "locked",
+      onClick: () => showToast("1-5 关卡会在下一步继续制作。"),
+      onCompletedClick: () => showToast("1-5 关卡会在下一步继续制作。"),
+    },
+  };
+}
+
+function updateHeroForView() {
+  if (state.currentView === "map") {
+    const page = MAP_PAGES[state.mapPage];
+    dom.heroEyebrow.textContent = `世界地图 / 第 ${state.mapPage + 1} 页`;
+    dom.heroTitle.textContent = `元素骰境：${page.name}`;
+    dom.heroSubtitle.textContent = page.subtitle;
+    return;
+  }
+  if (state.currentView === "event") {
+    dom.heroEyebrow.textContent = "地点事件 / 宝箱";
+    dom.heroTitle.textContent = "迷雾森林：林间宝箱";
+    dom.heroSubtitle.textContent = "从 3 种随机奖励中选择 1 种带走，奖励会永久保留到后续流程。";
+    return;
+  }
+  if (state.currentView === "shop") {
+    dom.heroEyebrow.textContent = "地点事件 / 商店";
+    dom.heroTitle.textContent = "迷雾森林：星辉行馆";
+    dom.heroSubtitle.textContent = "在华丽的大商店中购买药丸、技能卡与商店圣物，为后面的 1-5 做好准备。";
+    return;
+  }
+  const battle = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  dom.heroEyebrow.textContent = battle.heroEyebrow;
+  dom.heroTitle.textContent = battle.heroTitle;
+  dom.heroSubtitle.textContent = battle.heroSubtitle;
+}
+
+function renderMap(animate = false) {
+  const page = MAP_PAGES[state.mapPage];
+  setThemeClass(dom.mapCard, page.id);
+  setThemeClass(dom.mapScene, page.id);
+  if (animate) {
+    dom.mapScene.classList.remove("map-flip");
+    void dom.mapScene.offsetWidth;
+    dom.mapScene.classList.add("map-flip");
+  }
+  dom.mapRegionTitle.textContent = page.name;
+  dom.mapRegionText.textContent = page.subtitle;
+  dom.mapPageTitle.textContent = page.name;
+  dom.mapPageMeta.textContent = `第 ${state.mapPage + 1} 页 / 共 ${MAP_PAGES.length} 页`;
+  dom.mapHint.textContent = page.hint;
+  dom.mapPrevButton.disabled = state.mapPage === 0;
+  dom.mapNextButton.disabled = state.mapPage === MAP_PAGES.length - 1;
+  dom.mapChapterRow.innerHTML = "";
+  MAP_PAGES.forEach((mapPage, index) => {
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = `map-chapter-pill${index === state.mapPage ? " active" : ""}`;
+    pill.innerHTML = `<span>第 ${index + 1} 页</span><strong>${mapPage.name}</strong>`;
+    pill.addEventListener("click", () => {
+      state.mapPage = index;
+      renderMap(true);
+      updateHeroForView();
+    });
+    dom.mapChapterRow.append(pill);
+  });
+  dom.mapPathSvg.innerHTML = `<path d="${page.points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")}"></path>`;
+  dom.mapNodes.innerHTML = "";
+  const nodeDefs = currentNodeDefinitions();
+  page.points.forEach((point, index) => {
+    const node = document.createElement("div");
+    const button = document.createElement("button");
+    const label = document.createElement("div");
+    const nodeKey = state.mapPage === 0 && index === 0
+      ? NODE_KEYS.forest_1_1
+      : state.mapPage === 0 && index === 1
+        ? NODE_KEYS.forest_1_2
+        : state.mapPage === 0 && index === 2
+          ? NODE_KEYS.forest_1_3
+          : state.mapPage === 0 && index === 3
+            ? NODE_KEYS.forest_1_4
+            : state.mapPage === 0 && index === 4
+              ? NODE_KEYS.forest_1_5
+              : null;
+    const def = nodeKey ? nodeDefs[nodeKey] : null;
+    node.className = `map-node ${def?.state || "locked"}`;
+    node.style.left = `${point.x}%`;
+    node.style.top = `${point.y}%`;
+    button.type = "button";
+    button.className = "map-node-button";
+    button.innerHTML = def?.icon === "golem"
+      ? `<div class="map-node-icon-golem"><div class="map-node-arms"></div></div>`
+      : def?.icon === "chest"
+        ? `<div class="map-node-icon-chest"></div>`
+        : def?.icon === "shop"
+          ? `<div class="map-node-icon-shop"></div>`
+          : def?.icon === "gate"
+            ? `<div class="map-node-icon-gate"></div>`
+            : "?";
+    if (!def) {
+      button.addEventListener("click", () => showToast("该地点尚未开放。"));
+    } else if (def.state === "completed" && def.onCompletedClick) {
+      button.addEventListener("click", def.onCompletedClick);
+    } else if (def.state !== "locked") {
+      button.addEventListener("click", def.onClick);
+    } else {
+      button.addEventListener("click", () => showToast("先完成前置节点。"));
+    }
+    label.className = "map-node-label";
+    label.innerHTML = def?.label || "后续开放";
+    node.append(button, label);
+    dom.mapNodes.append(node);
+  });
+}
+
+function setView(view) {
+  state.currentView = view;
+  dom.mapView.classList.toggle("hidden-view", view !== "map");
+  dom.eventView.classList.toggle("hidden-view", view !== "event");
+  dom.shopView.classList.toggle("hidden-view", view !== "shop");
+  dom.battleView.classList.toggle("hidden-view", view !== "battle");
+  dom.mapButton.classList.toggle("hidden-control", view === "map");
+  updateHeroForView();
+}
+
+function currentBasePlays() {
+  const base = state.currentBattleConfig?.plays ?? MAX_TURNS;
+  return base + (state.shopRelics.has("hero_chain") ? 1 : 0);
+}
+
+function damagePlayer(rawDamage) {
+  let damage = Math.max(0, rawDamage - state.bossDamageReduction);
+  if (damage > 0 && state.cloakGuard) {
+    state.cloakGuard = false;
+    return 0;
+  }
+  if (state.metalGuard) {
+    state.metalGuard = false;
+    return 0;
+  }
+  if (state.shieldHp > 0) {
+    const absorbed = Math.min(state.shieldHp, damage);
+    state.shieldHp -= absorbed;
+    damage -= absorbed;
+  }
+  state.playerHp = Math.max(0, state.playerHp - damage);
+  return damage;
+}
+
+function renderRelicBar() {
+  dom.relicBar.innerHTML = "";
+  [...state.relics, ...state.shopRelics].forEach((relicId) => {
+    const relic = RELIC_DEFS[relicId] || SHOP_RELIC_DEFS[relicId];
+    if (!relic) return;
+    const slot = document.createElement("div");
+    slot.className = "item-slot relic";
+    slot.innerHTML = `<div class="item-icon">${relic.icon}</div><div><h4>${relic.name}</h4><p>${relic.description}</p></div><div class="item-count">${relic.short}</div>`;
+    dom.relicBar.append(slot);
+  });
+}
+
+function shopStatusCards() {
+  return [
+    {
+      label: "当前金币",
+      value: `${state.gold}`,
+      text: "金币会在购买后立刻扣除，可以自由搭配药丸、技能卡和圣物。",
+    },
+    {
+      label: "中级技能",
+      value: `${state.learnedMediumSkills.size}`,
+      text: state.shopSkillCardPurchased ? "本次商店的技能卡已经购买。" : "本次商店还能再购买 1 张技能卡。",
+    },
+    {
+      label: "商店圣物",
+      value: `${state.shopStockRelics.length} 陈列 / ${state.shopRelics.size} 已购`,
+      text: "商店陈列的圣物就是商店圣物。本次会陈列 2 件，已购入的圣物不会在后续商店里重复出现。",
+    },
+  ];
+}
+
+function resetBattleState() {
+  clearBossTimer();
+  state.playerMaxHp = currentPlayerMaxHp();
+  state.playerHp = state.playerMaxHp;
+  state.bossMaxHp = state.currentBattleConfig?.bossMaxHp ?? MAX_BOSS_HP;
+  state.bossHp = state.bossMaxHp;
+  state.bossName = state.currentBattleConfig?.bossName || "石像守卫";
+  state.bossWave = 1;
+  state.bossCount = state.currentBattleConfig?.bossCount || 1;
+  state.bossPatternIndex = 0;
+  state.bossDamageBoost = 1;
+  state.turn = 1;
+  state.rerollsLeft = currentBaseRerolls();
+  state.playsLeft = currentBasePlays();
+  state.selectedDice.clear();
+  state.phase = "player";
+  state.gameOver = false;
+  state.paused = false;
+  state.metalGuard = false;
+  state.shieldHp = 0;
+  state.shieldTurns = 0;
+  state.bossFrozen = false;
+  state.bossDamageReduction = 0;
+  state.cloakGuard = state.shopRelics.has("night_cloak");
+  state.nextBossAction = chooseBossAction();
+  state.dice = createStartingDicePool();
+  dom.battleLog.innerHTML = "";
+  dom.overlay.classList.add("hidden");
+  dom.pauseOverlay.classList.add("hidden");
+  addLog("system", state.currentBattleConfig?.introLog || "战斗开始。");
+  if (state.shopRelics.has("starlight_eye")) addLog("system", "星光之眼照亮了骰池，开局已形成至少三同色布局。");
+  if (state.cloakGuard) addLog("system", "暗夜斗篷在本关待命，将免疫你受到的第一次伤害。");
+  addLog("boss", `${bossDisplayName()} 露出了下一步意图：<strong>${state.nextBossAction.label}</strong>。`);
+  renderDice();
+  syncBattleUi();
+}
+
+function resetRun() {
+  clearBossTimer();
+  state.completedNodes = new Set();
+  state.gold = 0;
+  state.currentEvent = null;
+  state.eventChoices = [];
+  state.shopStockRelics = [];
+  state.shopSkillCardPurchased = false;
+  state.inventory = { blue_pill: 0, red_pill: 0, green_pill: 0, yellow_pill: 0 };
+  state.relics = new Set();
+  state.shopRelics = new Set();
+  state.learnedMediumSkills = new Set();
+  state.mapPage = 0;
+  setBattleConfig(NODE_KEYS.forest_1_1);
+  resetBattleState();
+  dom.overlay.classList.add("hidden");
+  closeHelp();
+  returnToMap();
+}
+
+function returnToMap() {
+  clearBossTimer();
+  if (state.currentView === "shop" && !hasCompleted(NODE_KEYS.forest_1_4)) completeNode(NODE_KEYS.forest_1_4);
+  state.paused = false;
+  dom.pauseOverlay.classList.add("hidden");
+  dom.overlay.classList.add("hidden");
+  closeHelp();
+  renderMap();
+  renderItemBar();
+  renderRelicBar();
+  renderSkillsPanel();
+  setView("map");
+}
+
+state.darkHunterRevived = false;
+state.darkHunterStealthed = false;
+state.darkHunterWindup = false;
+state.darkHunterReviveAvailable = false;
+
+BATTLE_CONFIGS[NODE_KEYS.forest_1_5] = {
+  nodeKey: NODE_KEYS.forest_1_5,
+  heroEyebrow: "第五关 / 暗夜猎人",
+  heroTitle: "元素骰境：暗夜猎人",
+  heroSubtitle: "在 8 次出骰机会与 8 次重掷内击败暗夜猎人。提防它的隐匿刺杀，以及死亡后仅会触发一次的暗夜苏生。",
+  bossName: "暗夜猎人",
+  bossMaxHp: 350,
+  plays: 8,
+  rerolls: 8,
+  rewardType: "map",
+  rewardGold: 8,
+  introLog: "第五关开始。暗夜猎人从雾幕与月辉中现身，冰冷地审视着你的每一步。",
+  chooseBossAction() {
+    if (state.darkHunterWindup) return { id: "assassinate", label: "刺杀", value: 80 };
+    return Math.random() < 0.8
+      ? { id: "shadow_arrow", label: "暗影箭", value: 35 }
+      : { id: "stealth", label: "隐匿刺杀", value: 0 };
+  },
+};
+
+function startFifthLevel() {
+  setBattleConfig(NODE_KEYS.forest_1_5);
+  resetBattleState();
+  setView("battle");
+  showToast("第五关开始。");
+  playSound("select");
+}
+
+function currentNodeDefinitions() {
+  return {
+    [NODE_KEYS.forest_1_1]: {
+      label: "1-1<br>石像守卫",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? "completed" : "active",
+      onClick: startFirstLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
+    [NODE_KEYS.forest_1_2]: {
+      label: hasCompleted(NODE_KEYS.forest_1_2) ? "1-2<br>已开启" : "1-2<br>宝箱",
+      icon: "chest",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? (hasCompleted(NODE_KEYS.forest_1_2) ? "completed" : "active") : "locked",
+      onClick: openTreasureEvent,
+      onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
+    },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通过" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
+    [NODE_KEYS.forest_1_4]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-4<br>已到访" : "1-4<br>商店",
+      icon: "shop",
+      state: hasCompleted(NODE_KEYS.forest_1_3) ? (hasCompleted(NODE_KEYS.forest_1_4) ? "completed" : "active") : "locked",
+      onClick: openShop,
+      onCompletedClick: openShop,
+    },
+    [NODE_KEYS.forest_1_5]: {
+      label: hasCompleted(NODE_KEYS.forest_1_5) ? "1-5<br>已通过" : "1-5<br>暗夜猎人",
+      icon: "gate",
+      state: hasCompleted(NODE_KEYS.forest_1_4) ? (hasCompleted(NODE_KEYS.forest_1_5) ? "completed" : "active") : "locked",
+      onClick: startFifthLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
+  };
+}
+
+function updateHeroForView() {
+  if (state.currentView === "map") {
+    const page = MAP_PAGES[state.mapPage];
+    dom.heroEyebrow.textContent = `世界地图 / 第 ${state.mapPage + 1} 页`;
+    dom.heroTitle.textContent = `元素骰境：${page.name}`;
+    dom.heroSubtitle.textContent = page.subtitle;
+    return;
+  }
+  if (state.currentView === "event") {
+    dom.heroEyebrow.textContent = "地点事件 / 宝箱";
+    dom.heroTitle.textContent = "迷雾森林：林间宝箱";
+    dom.heroSubtitle.textContent = "从 3 种随机奖励中选择 1 种带走，奖励会永久保留到后续流程。";
+    return;
+  }
+  if (state.currentView === "shop") {
+    dom.heroEyebrow.textContent = "地点事件 / 商店";
+    dom.heroTitle.textContent = "迷雾森林：星辉行馆";
+    dom.heroSubtitle.textContent = "在华丽的大商店中购买药丸、技能卡与商店圣物，为后面的 1-5 做好准备。";
+    return;
+  }
+  const battle = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  dom.heroEyebrow.textContent = battle.heroEyebrow;
+  dom.heroTitle.textContent = battle.heroTitle;
+  dom.heroSubtitle.textContent = battle.heroSubtitle;
+}
+
+function renderMap(animate = false) {
+  const page = MAP_PAGES[state.mapPage];
+  setThemeClass(dom.mapCard, page.id);
+  setThemeClass(dom.mapScene, page.id);
+  if (animate) {
+    dom.mapScene.classList.remove("map-flip");
+    void dom.mapScene.offsetWidth;
+    dom.mapScene.classList.add("map-flip");
+  }
+  dom.mapRegionTitle.textContent = page.name;
+  dom.mapRegionText.textContent = page.subtitle;
+  dom.mapPageTitle.textContent = page.name;
+  dom.mapPageMeta.textContent = `第 ${state.mapPage + 1} 页 / 共 ${MAP_PAGES.length} 页`;
+  dom.mapHint.textContent = page.hint;
+  dom.mapPrevButton.disabled = state.mapPage === 0;
+  dom.mapNextButton.disabled = state.mapPage === MAP_PAGES.length - 1;
+  dom.mapChapterRow.innerHTML = "";
+  MAP_PAGES.forEach((mapPage, index) => {
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = `map-chapter-pill${index === state.mapPage ? " active" : ""}`;
+    pill.innerHTML = `<span>第 ${index + 1} 页</span><strong>${mapPage.name}</strong>`;
+    pill.addEventListener("click", () => {
+      state.mapPage = index;
+      renderMap(true);
+      updateHeroForView();
+    });
+    dom.mapChapterRow.append(pill);
+  });
+  dom.mapPathSvg.innerHTML = `<path d="${page.points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")}"></path>`;
+  dom.mapNodes.innerHTML = "";
+  const nodeDefs = currentNodeDefinitions();
+  page.points.forEach((point, index) => {
+    const node = document.createElement("div");
+    const button = document.createElement("button");
+    const label = document.createElement("div");
+    const nodeKey = state.mapPage === 0 && index === 0
+      ? NODE_KEYS.forest_1_1
+      : state.mapPage === 0 && index === 1
+        ? NODE_KEYS.forest_1_2
+        : state.mapPage === 0 && index === 2
+          ? NODE_KEYS.forest_1_3
+          : state.mapPage === 0 && index === 3
+            ? NODE_KEYS.forest_1_4
+            : state.mapPage === 0 && index === 4
+              ? NODE_KEYS.forest_1_5
+              : null;
+    const def = nodeKey ? nodeDefs[nodeKey] : null;
+    node.className = `map-node ${def?.state || "locked"}`;
+    node.style.left = `${point.x}%`;
+    node.style.top = `${point.y}%`;
+    button.type = "button";
+    button.className = "map-node-button";
+    button.innerHTML = def?.icon === "golem"
+      ? `<div class="map-node-icon-golem"><div class="map-node-arms"></div></div>`
+      : def?.icon === "chest"
+        ? `<div class="map-node-icon-chest"></div>`
+        : def?.icon === "shop"
+          ? `<div class="map-node-icon-shop"></div>`
+          : def?.icon === "gate"
+            ? `<div class="map-node-icon-gate"></div>`
+            : "?";
+    if (!def) {
+      button.addEventListener("click", () => showToast("该地点尚未开放。"));
+    } else if (def.state === "completed" && def.onCompletedClick) {
+      button.addEventListener("click", def.onCompletedClick);
+    } else if (def.state !== "locked") {
+      button.addEventListener("click", def.onClick);
+    } else {
+      button.addEventListener("click", () => showToast("先完成前置节点。"));
+    }
+    label.className = "map-node-label";
+    label.innerHTML = def?.label || "后续开放";
+    node.append(button, label);
+    dom.mapNodes.append(node);
+  });
+}
+
+function damageBoss(amount) {
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5 && state.darkHunterStealthed && amount > 0) {
+    showToast("暗夜猎人处于隐匿状态，免疫了这次伤害。");
+    showBattleFloat(".boss-card", "隐匿", "immune");
+    addLog("boss", "暗夜猎人潜入阴影，避开了你的攻击。");
+    return;
+  }
+  state.bossHp = Math.max(0, state.bossHp - amount);
+}
+
+function renderBossPortrait() {
+  if (!dom.bossPortrait) return;
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+    dom.bossPortrait.classList.remove("wolf-pack");
+    dom.bossPortrait.classList.add("dark-hunter");
+    dom.bossPortrait.classList.toggle("stealthed", state.darkHunterStealthed);
+    dom.bossPortrait.innerHTML = `
+      <svg class="dark-hunter-illustration" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <linearGradient id="hunterHair" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#f8fbff" />
+            <stop offset="100%" stop-color="#c5d0e5" />
+          </linearGradient>
+          <linearGradient id="hunterArmor" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#8da0d6" />
+            <stop offset="45%" stop-color="#3c4b79" />
+            <stop offset="100%" stop-color="#10182e" />
+          </linearGradient>
+          <linearGradient id="hunterCloak" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#253253" />
+            <stop offset="100%" stop-color="#060914" />
+          </linearGradient>
+          <linearGradient id="hunterSkin" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#f4d9d3" />
+            <stop offset="100%" stop-color="#c89d9a" />
+          </linearGradient>
+        </defs>
+        <path class="cloak-flow" d="M42 170 C38 122, 54 70, 92 42 C76 88, 88 132, 104 182 C78 196, 56 192, 42 170 Z" fill="url(#hunterCloak)" opacity="0.96"/>
+        <path class="cloak-flow" d="M176 172 C182 132, 170 80, 130 40 C142 90, 134 136, 120 182 C146 194, 166 191, 176 172 Z" fill="url(#hunterCloak)" opacity="0.96"/>
+        <path d="M82 52 L52 92 L82 104 L92 62 Z" fill="url(#hunterArmor)" />
+        <path d="M138 52 L168 92 L138 104 L128 62 Z" fill="url(#hunterArmor)" />
+        <path d="M84 88 C92 72, 108 62, 122 62 C136 62, 150 72, 156 88 L150 162 C144 172, 132 180, 120 182 C106 180, 94 172, 88 162 Z" fill="url(#hunterArmor)" />
+        <path d="M102 82 C108 72, 120 70, 128 78 C132 88, 128 106, 122 116 C112 112, 102 102, 102 82 Z" fill="url(#hunterSkin)" />
+        <path d="M82 86 C88 66, 102 48, 120 46 C138 48, 150 64, 148 84 C146 102, 132 116, 118 118 C100 116, 84 104, 82 86 Z" fill="url(#hunterSkin)" />
+        <path d="M86 56 C90 34, 106 24, 126 24 C144 26, 152 42, 150 60 C146 84, 126 102, 102 106 C94 92, 90 72, 86 56 Z" fill="url(#hunterHair)" />
+        <path d="M92 54 C104 38, 118 30, 128 30 C122 46, 118 62, 116 98 C102 94, 94 78, 92 54 Z" fill="url(#hunterHair)" />
+        <path d="M116 42 C128 54, 136 78, 136 112 C146 106, 154 94, 156 78 C158 58, 146 40, 116 42 Z" fill="url(#hunterHair)" />
+        <ellipse class="glow-eye" cx="118" cy="74" rx="4" ry="3" fill="#c4f2ff" />
+        <path d="M108 86 C114 88, 120 88, 126 84" stroke="#8a5353" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+        <path d="M94 110 C106 118, 120 120, 136 114 L138 144 C130 158, 110 160, 100 146 Z" fill="#d9dce7" opacity="0.88"/>
+        <path d="M116 120 L124 136 L116 152 L108 136 Z" class="glow-rune" fill="#9ed8ff" opacity="0.9"/>
+      </svg>
+      <span>${bossDisplayName()}</span>
+    `;
+    return;
+  }
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    dom.bossPortrait.classList.remove("dark-hunter", "stealthed");
+    dom.bossPortrait.classList.add("wolf-pack");
+    dom.bossPortrait.innerHTML = `
+      <svg class="wolf-illustration" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <linearGradient id="wolfFur" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff" />
+            <stop offset="56%" stop-color="#e7eaee" />
+            <stop offset="100%" stop-color="#bcc2c9" />
+          </linearGradient>
+          <linearGradient id="wolfShade" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#fefefe" />
+            <stop offset="100%" stop-color="#aeb5bc" />
+          </linearGradient>
+          <linearGradient id="wolfDark" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#2c3138" />
+            <stop offset="100%" stop-color="#0d0f13" />
+          </linearGradient>
+        </defs>
+        <path class="wolf-shadow" d="M28 188 C74 176, 160 176, 204 190" />
+        <path class="wolf-tail-shape" d="M148 94 C182 80, 212 88, 214 104 C214 118, 190 120, 169 115 C188 122, 202 136, 194 148 C184 158, 152 143, 128 122 Z" />
+        <path class="wolf-body-shape" d="M72 68 C97 54, 132 56, 152 76 C166 90, 170 114, 162 133 C152 157, 124 170, 94 168 C64 166, 44 148, 40 124 C36 98, 48 78, 72 68 Z" />
+        <path class="wolf-chest-shape" d="M84 92 C92 78, 108 74, 118 82 C126 92, 124 116, 114 130 C104 144, 88 144, 80 132 C74 120, 76 106, 84 92 Z" />
+        <path class="wolf-neck-shape" d="M66 82 C72 62, 90 44, 110 42 C126 42, 138 50, 140 62 C142 76, 132 88, 118 96 C102 104, 78 106, 66 82 Z" />
+        <path class="wolf-head-shape" d="M48 28 C62 18, 82 18, 96 26 C104 32, 108 44, 106 56 C104 74, 88 84, 68 84 C48 82, 34 70, 34 54 C34 44, 38 34, 48 28 Z" />
+        <path class="wolf-muzzle-shape" d="M86 40 C98 42, 110 50, 118 60 C122 66, 120 72, 112 74 C98 78, 78 74, 72 64 C68 56, 74 40, 86 40 Z" />
+        <path class="wolf-jaw-shape" d="M82 66 C98 70, 110 76, 116 88 C112 96, 102 102, 88 100 C74 98, 66 90, 68 82 C70 76, 74 70, 82 66 Z" />
+        <path class="wolf-ear-left-shape" d="M52 22 L64 2 L74 26 Z" />
+        <path class="wolf-ear-right-shape" d="M74 24 L92 10 L90 34 Z" />
+        <path class="wolf-leg-back-shape" d="M116 152 C126 150, 134 156, 134 166 L130 204 C128 210, 120 212, 116 206 L114 170 C114 162, 112 156, 116 152 Z" />
+        <path class="wolf-leg-back2-shape" d="M146 146 C154 146, 160 154, 158 164 L152 205 C150 211, 142 213, 138 208 L138 168 C138 160, 140 150, 146 146 Z" />
+        <path class="wolf-leg-front-shape" d="M74 150 C82 144, 94 146, 98 156 L94 206 C92 212, 84 214, 80 208 L76 170 C74 162, 70 156, 74 150 Z" />
+        <path class="wolf-leg-front2-shape" d="M96 144 C106 140, 116 146, 118 156 L114 206 C112 212, 104 214, 100 208 L98 168 C98 160, 94 150, 96 144 Z" />
+        <ellipse class="wolf-eye-shape" cx="66" cy="46" rx="3.4" ry="4.1" />
+        <ellipse class="wolf-eye-shape" cx="78" cy="49" rx="2.8" ry="3.4" />
+        <path class="wolf-brow" d="M58 40 C64 36, 70 36, 76 40" />
+        <path class="wolf-nose-shape" d="M112 66 C116 66, 120 68, 120 72 C120 76, 116 78, 112 78 C108 78, 104 76, 104 72 C104 68, 108 66, 112 66 Z" />
+        <path class="wolf-fang-left" d="M94 84 L98 98 L92 98 Z" />
+        <path class="wolf-fang-right" d="M104 88 L108 102 L102 102 Z" />
+        <path class="wolf-snarl" d="M84 82 C94 88, 102 90, 112 88" />
+      </svg>
+      <span>${bossDisplayName()}</span>
+    `;
+    return;
+  }
+  dom.bossPortrait.classList.remove("wolf-pack", "dark-hunter", "stealthed");
+  dom.bossPortrait.innerHTML = `
+    <div class="boss-horn boss-horn-left"></div>
+    <div class="boss-horn boss-horn-right"></div>
+    <div class="boss-shoulder boss-shoulder-left"></div>
+    <div class="boss-shoulder boss-shoulder-right"></div>
+    <div class="boss-upperarm boss-upperarm-left"></div>
+    <div class="boss-upperarm boss-upperarm-right"></div>
+    <div class="boss-forearm boss-forearm-left"></div>
+    <div class="boss-forearm boss-forearm-right"></div>
+    <div class="boss-fist boss-fist-left"></div>
+    <div class="boss-fist boss-fist-right"></div>
+    <div class="boss-neck"></div>
+    <div class="boss-core"></div>
+    <div class="boss-lava boss-lava-chest"></div>
+    <div class="boss-lava boss-lava-left"></div>
+    <div class="boss-lava boss-lava-right"></div>
+    <div class="boss-face">
+      <span class="boss-eye boss-eye-left"></span>
+      <span class="boss-eye boss-eye-right"></span>
+      <span class="boss-mouth"></span>
+    </div>
+    <span>${bossDisplayName()}</span>
+  `;
+}
+
+function bossActionMeta(action) {
+  if (!action) return { icon: "?", title: "Boss 正在观察你", text: "预告区会显示它下一次行动。", badge: "待揭示", preview: "预告中" };
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+    if (action.id === "shadow_arrow") return { icon: "影", title: action.label, text: "预计造成 35 点伤害。", badge: "远程", preview: "即将暗影箭" };
+    if (action.id === "stealth") return { icon: "隐", title: action.label, text: "下回合进入隐匿状态，期间不会受到伤害；再下一回合发动刺杀。", badge: "隐匿", preview: "即将隐匿" };
+    if (action.id === "assassinate") return { icon: "杀", title: action.label, text: "预计造成 80 点高额伤害，必须提前准备防御、冻结或免疫。", badge: "致命", preview: "即将刺杀" };
+  }
+  if (action.id === "attack") return { icon: "刃", title: action.label, text: `预计造成 ${Math.round(action.value * state.bossDamageBoost)} 点伤害。`, badge: state.bossDamageBoost > 1 ? "强化" : "轻击", preview: `即将${action.label}` };
+  if (action.id === "slam") return { icon: "爆", title: action.label, text: `预计造成 ${action.value} 点伤害，建议提前准备金属化或护盾。`, badge: "高伤", preview: `即将${action.label}` };
+  return { icon: "+", title: action.label, text: state.currentBattleKey === NODE_KEYS.forest_1_3 ? `回复 ${action.value} 点生命，并让下一次攻击伤害提升 50%。` : `预计回复 ${action.value} 点生命，这通常是你的输出窗口。`, badge: "回血", preview: `即将${action.label}` };
+}
+
+function getGuideTip() {
+  const action = state.nextBossAction;
+  if (!action) return { title: "先观察 Boss 的下一招", text: "预告区会告诉你下一回合应该保命还是抢输出。" };
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+    if (state.darkHunterStealthed && state.darkHunterWindup) return { title: "猎人已隐入黑暗", text: "这一回合几乎不该浪费输出，优先准备金属化、护盾、黄药丸或保命道具，迎接下一击刺杀。" };
+    if (action.id === "stealth") return { title: "提前准备反制刺杀", text: "它先隐匿，再在下一回合刺杀。你现在最好囤防御、冻结或者免疫手段。" };
+    if (action.id === "assassinate") return { title: "这一击非常危险", text: "80 点伤害会迅速压垮血线，尽量用金属、土盾、黄药丸或暗夜斗篷去化解。" };
+    return { title: "暗影箭压力稳定但持续", text: "单发伤害不低，适合边控血线边规划爆发，注意它死亡后还会有一次复活。" };
+  }
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    if (action.id === "heal") return { title: "野性咆哮后要准备防御", text: "它回完血后的下一击会强化 50%，尽量提前准备金属化、护盾或冻结。" };
+    if (state.bossDamageBoost > 1) return { title: "下一击已经强化", text: "这回合更适合保命，不要硬吃强化后的利爪撕咬。" };
+    return { title: "抓紧清掉当前这只狼", text: "狼群是连续车轮战，尽量在低风险回合多打伤害，减少后续压力。" };
+  }
+  if (action.id === "slam") return { title: "优先考虑保命", text: "尽量凑三个金或三个土，实在没有也可以使用黄药丸冻结 Boss。" };
+  if (action.id === "heal") return { title: "这是抢节奏的机会", text: "回血回合适合拼火、水或直接追求五以太终结。" };
+  return { title: "维持血线并持续压制", text: "普通攻击压力不大，可以继续找输出或补充资源。" };
+}
+
+function syncBattleUi() {
+  const bossName = bossDisplayName();
+  renderBossPortrait();
+  dom.goldCount.textContent = String(state.gold);
+  dom.playerHpLabel.textContent = `${state.playerHp} / ${state.playerMaxHp}`;
+  dom.playerHpBar.style.width = `${(state.playerHp / state.playerMaxHp) * 100}%`;
+  dom.bossHpLabel.textContent = `${state.bossHp} / ${state.bossMaxHp}`;
+  dom.bossHpBar.style.width = `${(state.bossHp / state.bossMaxHp) * 100}%`;
+  dom.turnCounter.textContent = `回合 ${state.turn} / ${currentBasePlays()}`;
+  dom.rerollCounter.textContent = String(state.rerollsLeft);
+  dom.playCounter.textContent = String(state.playsLeft);
+  dom.metalState.textContent = state.metalGuard ? "已激活" : "未激活";
+  dom.shieldState.textContent = state.shieldHp > 0 ? `${state.shieldHp} / ${state.shieldTurns}` : "0 / 0";
+  dom.freezeState.textContent = state.bossFrozen ? "已冻结" : state.currentBattleKey === NODE_KEYS.forest_1_5 && state.darkHunterStealthed ? "隐匿中" : "无";
+  dom.bossState.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5
+    ? state.darkHunterStealthed
+      ? "隐匿状态"
+      : state.darkHunterReviveAvailable
+        ? "苏生待命"
+        : state.darkHunterRevived
+          ? "已完成苏生"
+          : "夜幕游猎"
+    : state.bossDamageBoost > 1
+      ? "下一击强化"
+      : state.bossDamageReduction > 0
+        ? `伤害 -${state.bossDamageReduction}`
+        : state.currentBattleKey === NODE_KEYS.forest_1_3
+          ? "狼群环伺"
+          : "石纹微震";
+  const bossPortraitName = document.querySelector(".boss-portrait > span");
+  const bossCardTitle = document.querySelector(".boss-card .status-head h2");
+  if (bossPortraitName) bossPortraitName.textContent = bossName;
+  if (bossCardTitle) bossCardTitle.textContent = bossName;
+  dom.phaseBadge.textContent = state.phase === "player" ? "玩家回合" : state.phase === "boss" ? "Boss 回合" : "战斗结束";
+  dom.pauseButton.disabled = state.gameOver;
+  dom.pauseButton.textContent = state.paused ? "继续" : "暂停";
+  dom.audioButton.textContent = `音效：${state.audioEnabled ? "开" : "关"}`;
+  const preview = bossActionMeta(state.nextBossAction);
+  const guide = getGuideTip();
+  dom.forecastIcon.textContent = preview.icon;
+  dom.forecastTitle.textContent = preview.title;
+  dom.forecastText.textContent = preview.text;
+  dom.forecastBadge.textContent = preview.badge;
+  dom.bossIntent.textContent = state.paused ? "已暂停" : state.phase === "boss" ? "行动中" : preview.preview;
+  dom.guideTitle.textContent = guide.title;
+  dom.guideText.textContent = guide.text;
+  dom.forecastCard.classList.remove("attack", "slam", "heal", "windup");
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5 && (state.nextBossAction?.id === "assassinate" || state.darkHunterWindup)) dom.forecastCard.classList.add("windup");
+  if (state.nextBossAction?.id === "attack" || state.nextBossAction?.id === "shadow_arrow") dom.forecastCard.classList.add("attack");
+  if (state.nextBossAction?.id === "slam") dom.forecastCard.classList.add("slam");
+  if (state.nextBossAction?.id === "heal" || state.nextBossAction?.id === "stealth") dom.forecastCard.classList.add("heal");
+  const disableActions = state.gameOver || state.phase !== "player" || state.paused;
+  dom.rerollButton.disabled = disableActions || state.selectedDice.size === 0 || state.rerollsLeft <= 0;
+  dom.playButton.disabled = disableActions || state.selectedDice.size === 0 || state.playsLeft <= 0;
+  dom.clearButton.disabled = disableActions || state.selectedDice.size === 0;
+  renderItemBar();
+  renderRelicBar();
+  renderSkillsPanel();
+}
+
+function resolveBossTurn() {
+  if (state.gameOver || state.paused) return;
+  const action = state.nextBossAction || chooseBossAction();
+  dom.bossIntent.textContent = "行动中";
+  if (state.bossFrozen) {
+    state.bossFrozen = false;
+    state.bossPatternIndex += 1;
+    addLog("boss", `${bossDisplayName()} 被冻结，当前回合无法行动。`);
+    showToast("Boss 行动被跳过。");
+    playSound("freeze");
+    consumeShieldTurn();
+    finishRound();
+    return;
+  }
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+    if (action.id === "stealth") {
+      state.darkHunterStealthed = true;
+      state.darkHunterWindup = true;
+      addLog("boss", "暗夜猎人发动 <strong>隐匿刺杀</strong>，身影沉入夜色，本回合起将免疫伤害，并在下个 Boss 回合发动刺杀。");
+      showToast("暗夜猎人进入隐匿状态。");
+      playSound("bossHeal");
+    } else if (action.id === "assassinate") {
+      state.darkHunterStealthed = false;
+      state.darkHunterWindup = false;
+      const dealt = damagePlayer(action.value);
+      addLog("boss", `暗夜猎人从阴影中发动 <strong>刺杀</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
+      showToast("暗夜猎人发动了刺杀。");
+      showBattleFloat(".player-card", dealt === 0 ? "免疫" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
+      applyTransientClass(".player-card", "impact", 500);
+      playSound("bossSlam");
+    } else {
+      const dealt = damagePlayer(action.value);
+      addLog("boss", `暗夜猎人射出 <strong>暗影箭</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
+      showToast("暗影箭命中。");
+      showBattleFloat(".player-card", dealt === 0 ? "免疫" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
+      applyTransientClass(".player-card", "impact", 500);
+      playSound("bossAttack");
+    }
+    state.bossPatternIndex += 1;
+    consumeShieldTurn();
+    syncBattleUi();
+    if (checkBattleEnd()) return;
+    finishRound();
+    return;
+  }
+  const previousResolveBossTurn = (() => {});
+  const action2 = action;
+  if (action2.id === "heal") {
+    healBoss(action2.value);
+    if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+      state.bossDamageBoost = 1.5;
+      addLog("boss", `迅猛狼发动 <strong>${action2.label}</strong>，回复了 <strong>${action2.value}</strong> 点生命，并让下一次攻击伤害提升 50%。`);
+      showToast("野性咆哮强化了下一次攻击。");
+    } else {
+      addLog("boss", `石像守卫发动 <strong>${action2.label}</strong>，回复了 <strong>${action2.value}</strong> 点生命。`);
+      showToast("Boss 回复了生命。");
+    }
+    showBattleFloat(".boss-card", `+${action2.value}`, "heal");
+    playSound("bossHeal");
+  } else {
+    const damageValue = Math.round(action2.value * state.bossDamageBoost);
+    const dealt = damagePlayer(damageValue);
+    addLog("boss", `${bossDisplayName()} 发动 <strong>${action2.label}</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
+    showToast(`Boss 使出了${action2.label}。`);
+    showBattleFloat(".player-card", dealt === 0 ? "免疫" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
+    applyTransientClass(".player-card", "impact", 500);
+    playSound(action2.id === "slam" ? "bossSlam" : "bossAttack");
+    state.bossDamageBoost = 1;
+  }
+  state.bossPatternIndex += 1;
+  consumeShieldTurn();
+  syncBattleUi();
+  if (checkBattleEnd()) return;
+  finishRound();
+}
+
+function checkBattleEnd(forceTurnCheck = false) {
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5 && state.bossHp <= 0 && state.darkHunterReviveAvailable) {
+    state.darkHunterReviveAvailable = false;
+    state.darkHunterRevived = true;
+    state.darkHunterStealthed = false;
+    state.darkHunterWindup = false;
+    state.bossHp = 100;
+    addLog("boss", "暗夜猎人触发了 <strong>暗夜苏生</strong>，在倒下的瞬间重新站起，并恢复了 <strong>100</strong> 点生命。");
+    showToast("暗夜猎人发动暗夜苏生。");
+    showBattleFloat(".boss-card", "+100", "heal");
+    syncBattleUi();
+    return false;
+  }
+  if (state.bossHp <= 0) {
+    if (maybeAdvanceBossWave()) return false;
+    state.gameOver = true;
+    state.phase = "end";
+    const nodeKey = state.currentBattleKey || NODE_KEYS.forest_1_1;
+    const firstClear = !hasCompleted(nodeKey);
+    let relic = null;
+    if (firstClear) {
+      completeNode(nodeKey);
+      addGold(state.currentBattleConfig?.rewardGold || 0);
+      if (state.currentBattleConfig?.rewardType === "treasure") {
+        state.overlayAction = "treasure";
+      } else if (state.currentBattleConfig?.rewardType === "wolf_relic") {
+        relic = grantRandomWolfRelic();
+        state.overlayAction = firstClear && state.currentBattleKey === NODE_KEYS.forest_1_3 ? "shop" : "map";
+      } else {
+        state.overlayAction = "map";
+      }
+    } else {
+      state.overlayAction = "map";
+    }
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战成功";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5
+      ? "暗夜猎人已被终结"
+      : state.currentBattleKey === NODE_KEYS.forest_1_3
+        ? "迅猛狼群已被击退"
+        : "石像守卫已被击碎";
+    if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+      dom.overlayText.textContent = firstClear
+        ? "你在夜幕深处击败了暗夜猎人，闯过了 1-5。它的隐匿刺杀与暗夜苏生都没能阻止你。"
+        : "你再次击败了暗夜猎人，可以返回地图继续规划后续章节。";
+      dom.overlayButton.textContent = "返回地图";
+    } else if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+      dom.overlayText.textContent = firstClear
+        ? `你连续击败了三只迅猛狼，获得 ${THIRD_LEVEL_CLEAR_GOLD} 枚金币，并拿到了圣物“${relic?.name || "未知圣物"}”。效果：${relicEffectText(relic)}`
+        : "你再次击退了迅猛狼群，可以返回地图继续前进。";
+      dom.overlayButton.textContent = firstClear ? "进入商店" : "返回地图";
+    } else {
+      dom.overlayText.textContent = firstClear
+        ? `你完成了首关挑战，并获得 ${FIRST_LEVEL_CLEAR_GOLD} 枚金币。接下来会进入第 2 个地点的宝箱事件。`
+        : "你再次击败了石像守卫，可以返回地图继续查看路线。";
+      dom.overlayButton.textContent = firstClear ? "进入第 2 地点" : "返回地图";
+    }
+    dom.overlay.classList.remove("hidden");
+    addLog("system", `战斗结束。你成功击败了 ${state.currentBattleConfig?.bossName || "Boss"}。`);
+    playSound("win");
+    renderMap();
+    return true;
+  }
+  if (state.playerHp <= 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5 ? "你被暗夜猎人猎杀" : state.currentBattleKey === NODE_KEYS.forest_1_3 ? "你被狼群撕碎了防线" : "你被石像守卫击倒";
+    dom.overlayText.textContent = "生命归零，遗迹深处再度归于沉寂。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "战斗结束。你的生命值耗尽，挑战失败。");
+    playSound("lose");
+    return true;
+  }
+  if (forceTurnCheck && state.playsLeft <= 0 && state.bossHp > 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5 ? "出骰机会已尽" : state.currentBattleKey === NODE_KEYS.forest_1_3 ? "出骰机会已尽" : "六回合已尽";
+    dom.overlayText.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5 ? "八次出骰机会已经耗尽，暗夜猎人仍潜伏在夜色中，第五关挑战失败。" : state.currentBattleKey === NODE_KEYS.forest_1_3 ? "十次出骰机会已经耗尽，狼群仍未被清空，第三关挑战失败。" : "石像守卫仍然屹立，第一关挑战失败。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "出骰回合耗尽后 Boss 仍然存活，本次挑战失败。");
+    playSound("lose");
+    return true;
+  }
+  return false;
+}
+
+function resetBattleState() {
+  clearBossTimer();
+  state.playerMaxHp = currentPlayerMaxHp();
+  state.playerHp = state.playerMaxHp;
+  state.bossMaxHp = state.currentBattleConfig?.bossMaxHp ?? MAX_BOSS_HP;
+  state.bossHp = state.bossMaxHp;
+  state.bossName = state.currentBattleConfig?.bossName || "石像守卫";
+  state.bossWave = 1;
+  state.bossCount = state.currentBattleConfig?.bossCount || 1;
+  state.bossPatternIndex = 0;
+  state.bossDamageBoost = 1;
+  state.turn = 1;
+  state.rerollsLeft = currentBaseRerolls();
+  state.playsLeft = currentBasePlays();
+  state.selectedDice.clear();
+  state.phase = "player";
+  state.gameOver = false;
+  state.paused = false;
+  state.metalGuard = false;
+  state.shieldHp = 0;
+  state.shieldTurns = 0;
+  state.bossFrozen = false;
+  state.bossDamageReduction = 0;
+  state.cloakGuard = state.shopRelics.has("night_cloak");
+  state.darkHunterRevived = false;
+  state.darkHunterStealthed = false;
+  state.darkHunterWindup = false;
+  state.darkHunterReviveAvailable = state.currentBattleKey === NODE_KEYS.forest_1_5;
+  state.nextBossAction = chooseBossAction();
+  state.dice = createStartingDicePool();
+  dom.battleLog.innerHTML = "";
+  dom.overlay.classList.add("hidden");
+  dom.pauseOverlay.classList.add("hidden");
+  addLog("system", state.currentBattleConfig?.introLog || "战斗开始。");
+  if (state.shopRelics.has("starlight_eye")) addLog("system", "星光之眼照亮了骰池，开局已形成至少三同色布局。");
+  if (state.cloakGuard) addLog("system", "暗夜斗篷在本关待命，将免疫你受到的第一次伤害。");
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5) addLog("boss", "暗夜猎人的被动 <strong>暗夜苏生</strong> 已待命，它倒下时会复活一次并恢复 100 生命。");
+  addLog("boss", `${bossDisplayName()} 露出了下一步意图：<strong>${state.nextBossAction.label}</strong>。`);
+  renderDice();
+  syncBattleUi();
+}
+
 dom.rerollButton.addEventListener("click", rerollSelectedDice);
 dom.playButton.addEventListener("click", resolvePlayerAction);
 dom.clearButton.addEventListener("click", clearSelection);
@@ -1673,6 +2886,8 @@ dom.resumeButton.addEventListener("click", () => togglePause(false));
 dom.pauseHelpButton.addEventListener("click", openHelp);
 dom.restartButton.addEventListener("click", resetRun);
 dom.eventBackButton.addEventListener("click", returnToMap);
+dom.shopBackButton.addEventListener("click", returnToMap);
+dom.shopLeaveButton.addEventListener("click", leaveShop);
 dom.overlayButton.addEventListener("click", () => {
   dom.overlay.classList.add("hidden");
   if (state.overlayAction === "map") {
@@ -1685,6 +2900,10 @@ dom.overlayButton.addEventListener("click", () => {
   }
   if (state.overlayAction === "treasure") {
     openTreasureEvent();
+    return;
+  }
+  if (state.overlayAction === "shop") {
+    openShop();
     return;
   }
   resetBattleState();
