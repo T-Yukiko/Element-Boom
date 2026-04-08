@@ -8,23 +8,24 @@ const ELEMENTS = {
 };
 
 const ELEMENT_ORDER = ["metal", "wood", "water", "fire", "earth", "aether"];
-const MAX_PLAYER_HP = 100;
+const BASE_PLAYER_HP = 100;
 const MAX_BOSS_HP = 200;
 const MAX_TURNS = 6;
 const DICE_COUNT = 5;
 const TOTAL_REROLLS = 5;
 const FIRST_LEVEL_CLEAR_GOLD = 4;
+const THIRD_LEVEL_CLEAR_GOLD = 6;
 const COIN_BAG_GOLD = 5;
 const TREASURE_DRAW_COUNT = 3;
 const MAP_THEMES = ["theme-forest", "theme-tundra", "theme-lava", "theme-castle"];
-const NODE_KEYS = { forest_1_1: "forest_1_1", forest_1_2: "forest_1_2" };
+const NODE_KEYS = { forest_1_1: "forest_1_1", forest_1_2: "forest_1_2", forest_1_3: "forest_1_3" };
 
 const MAP_PAGES = [
   {
     id: "forest",
     name: "迷雾森林",
     subtitle: "古树、残碑与潮湿石径交织成最初的试炼路线。",
-    hint: "点击 1-1 进入 Boss 战。首通后会开启 1-2 宝箱事件。",
+    hint: "点击 1-1 进入 Boss 战。首通后开启 1-2 宝箱，宝箱领取后开放 1-3 迅猛狼群。",
     points: [{ x: 12, y: 78 }, { x: 24, y: 62 }, { x: 39, y: 70 }, { x: 53, y: 54 }, { x: 67, y: 63 }, { x: 80, y: 46 }, { x: 66, y: 28 }, { x: 48, y: 34 }, { x: 29, y: 20 }, { x: 14, y: 36 }],
   },
   {
@@ -58,19 +59,70 @@ const ITEM_DEFS = {
 };
 
 const RELIC_DEFS = {
-  ember_sigil: {
-    id: "ember_sigil",
-    name: "余烬徽记",
-    short: "火伤 +10",
-    icon: "✦",
-    description: "整轮游戏生效。火系技能额外造成 10 点伤害。",
+  wolf_tooth: {
+    id: "wolf_tooth",
+    name: "迅猛狼之牙",
+    short: "全伤害 +10",
+    icon: "牙",
+    description: "整轮游戏生效。你造成的所有伤害提升 10 点。",
   },
-  tide_orb: {
-    id: "tide_orb",
-    name: "潮汐法球",
-    short: "开局护盾",
-    icon: "◈",
-    description: "整轮游戏生效。每场战斗开始时获得 20 点护盾。",
+  wolf_skin: {
+    id: "wolf_skin",
+    name: "迅猛狼之皮",
+    short: "生命上限 +50",
+    icon: "皮",
+    description: "整轮游戏生效。生命上限永久提升 50 点。",
+  },
+  wolf_eye: {
+    id: "wolf_eye",
+    name: "迅猛狼之眼",
+    short: "重掷 +1",
+    icon: "瞳",
+    description: "整轮游戏生效。所有关卡的基础重掷次数永久 +1。",
+  },
+};
+
+const BATTLE_CONFIGS = {
+  [NODE_KEYS.forest_1_1]: {
+    nodeKey: NODE_KEYS.forest_1_1,
+    heroEyebrow: "第一关 / Boss Battle",
+    heroTitle: "元素骰境：石像守卫",
+    heroSubtitle: "在 6 回合内击碎石像守卫，利用 5 枚元素骰子拼出技能，压制 Boss 节奏。",
+    bossName: "石像守卫",
+    bossMaxHp: 200,
+    plays: 6,
+    rerolls: 5,
+    rewardType: "treasure",
+    rewardGold: FIRST_LEVEL_CLEAR_GOLD,
+    introLog: "战斗开始。石像守卫从遗迹中苏醒，你先手行动。",
+    chooseBossAction() {
+      const roll = Math.random();
+      if (roll < 0.5) return { id: "attack", label: "普通攻击", value: 20 };
+      if (roll < 0.7) return { id: "slam", label: "蓄力重击", value: 50 };
+      return { id: "heal", label: "生命恢复", value: 30 };
+    },
+  },
+  [NODE_KEYS.forest_1_3]: {
+    nodeKey: NODE_KEYS.forest_1_3,
+    heroEyebrow: "第三关 / 狼群试炼",
+    heroTitle: "元素骰境：迅猛狼群",
+    heroSubtitle: "三只迅猛狼会轮番上阵。每只狼 80 生命，全部击败才算胜利。",
+    bossName: "迅猛狼群",
+    bossMaxHp: 80,
+    bossCount: 3,
+    plays: 10,
+    rerolls: 10,
+    rewardType: "wolf_relic",
+    rewardGold: THIRD_LEVEL_CLEAR_GOLD,
+    introLog: "第三关开始。迅猛狼群正分批扑杀而来，必须连续击败三只狼才能脱身。",
+    chooseBossAction() {
+      const pattern = [
+        { id: "attack", label: "利爪撕咬", value: 30 },
+        { id: "attack", label: "利爪撕咬", value: 30 },
+        { id: "heal", label: "野性咆哮", value: 20 },
+      ];
+      return { ...pattern[state.bossPatternIndex % pattern.length] };
+    },
   },
 };
 
@@ -123,6 +175,7 @@ const dom = {
   eventStatus: document.querySelector("#eventStatus"),
   rewardChoices: document.querySelector("#rewardChoices"),
   turnCounter: document.querySelector("#turnCounter"),
+  bossPortrait: document.querySelector(".boss-portrait"),
   playerHpLabel: document.querySelector("#playerHpLabel"),
   playerHpBar: document.querySelector("#playerHpBar"),
   bossHpLabel: document.querySelector("#bossHpLabel"),
@@ -171,6 +224,8 @@ const dom = {
 const state = {
   currentView: "map",
   mapPage: 0,
+  currentBattleKey: null,
+  currentBattleConfig: null,
   currentEvent: null,
   eventChoices: [],
   completedNodes: new Set(),
@@ -183,8 +238,15 @@ const state = {
   gameOver: false,
   overlayAction: "reset",
   bossTimerId: null,
-  playerHp: MAX_PLAYER_HP,
+  playerHp: BASE_PLAYER_HP,
+  playerMaxHp: BASE_PLAYER_HP,
   bossHp: MAX_BOSS_HP,
+  bossMaxHp: MAX_BOSS_HP,
+  bossName: "石像守卫",
+  bossWave: 1,
+  bossCount: 1,
+  bossPatternIndex: 0,
+  bossDamageBoost: 1,
   turn: 1,
   rerollsLeft: TOTAL_REROLLS,
   playsLeft: MAX_TURNS,
@@ -306,12 +368,12 @@ function consumeItem(itemId) {
 
 function healPlayer(amount) {
   const before = state.playerHp;
-  state.playerHp = Math.min(MAX_PLAYER_HP, state.playerHp + amount);
+  state.playerHp = Math.min(state.playerMaxHp, state.playerHp + amount);
   return state.playerHp - before;
 }
 
 function healBoss(amount) {
-  state.bossHp = Math.min(MAX_BOSS_HP, state.bossHp + amount);
+  state.bossHp = Math.min(state.bossMaxHp, state.bossHp + amount);
 }
 
 function damageBoss(amount) {
@@ -490,6 +552,13 @@ function currentNodeDefinitions() {
       onClick: openTreasureEvent,
       onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
     },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通过" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: () => showToast("已通过"),
+    },
   };
 }
 
@@ -507,9 +576,10 @@ function updateHeroForView() {
     dom.heroSubtitle.textContent = "从 3 种随机奖励中选择 1 种带走，奖励会永久保留到后续流程。";
     return;
   }
-  dom.heroEyebrow.textContent = "第一关 / Boss Battle";
-  dom.heroTitle.textContent = "元素骰境：石像守卫";
-  dom.heroSubtitle.textContent = "在 6 回合内击碎石像守卫，利用 5 枚元素骰子拼出技能，压制 Boss 节奏。";
+  const battle = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  dom.heroEyebrow.textContent = battle.heroEyebrow;
+  dom.heroTitle.textContent = battle.heroTitle;
+  dom.heroSubtitle.textContent = battle.heroSubtitle;
 }
 
 function renderMap(animate = false) {
@@ -548,7 +618,13 @@ function renderMap(animate = false) {
     const node = document.createElement("div");
     const button = document.createElement("button");
     const label = document.createElement("div");
-    const nodeKey = state.mapPage === 0 && index === 0 ? NODE_KEYS.forest_1_1 : state.mapPage === 0 && index === 1 ? NODE_KEYS.forest_1_2 : null;
+    const nodeKey = state.mapPage === 0 && index === 0
+      ? NODE_KEYS.forest_1_1
+      : state.mapPage === 0 && index === 1
+        ? NODE_KEYS.forest_1_2
+        : state.mapPage === 0 && index === 2
+          ? NODE_KEYS.forest_1_3
+          : null;
     const def = nodeKey ? nodeDefs[nodeKey] : null;
     node.className = `map-node ${def?.state || "locked"}`;
     node.style.left = `${point.x}%`;
@@ -592,6 +668,149 @@ function randomPick(array, count) {
     result.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   }
   return result;
+}
+
+function currentPlayerMaxHp() {
+  return BASE_PLAYER_HP + (state.relics.has("wolf_skin") ? 50 : 0);
+}
+
+function currentBaseRerolls() {
+  const base = state.currentBattleConfig?.rerolls ?? TOTAL_REROLLS;
+  return base + (state.relics.has("wolf_eye") ? 1 : 0);
+}
+
+function currentBasePlays() {
+  return state.currentBattleConfig?.plays ?? MAX_TURNS;
+}
+
+function playerDamageBonus() {
+  return state.relics.has("wolf_tooth") ? 10 : 0;
+}
+
+function bossDisplayName() {
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    return `迅猛狼群 第 ${state.bossWave} / ${state.bossCount} 只`;
+  }
+  return state.bossName;
+}
+
+function relicEffectText(relic) {
+  return relic ? relic.description : "";
+}
+
+function renderBossPortrait() {
+  if (!dom.bossPortrait) return;
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    dom.bossPortrait.classList.add("wolf-pack");
+    dom.bossPortrait.innerHTML = `
+      <svg class="wolf-illustration" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <linearGradient id="wolfFur" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff" />
+            <stop offset="56%" stop-color="#e7eaee" />
+            <stop offset="100%" stop-color="#bcc2c9" />
+          </linearGradient>
+          <linearGradient id="wolfShade" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#fefefe" />
+            <stop offset="100%" stop-color="#aeb5bc" />
+          </linearGradient>
+          <linearGradient id="wolfDark" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#2c3138" />
+            <stop offset="100%" stop-color="#0d0f13" />
+          </linearGradient>
+        </defs>
+        <path class="wolf-shadow" d="M28 188 C74 176, 160 176, 204 190" />
+        <path class="wolf-tail-shape" d="M148 94 C182 80, 212 88, 214 104 C214 118, 190 120, 169 115 C188 122, 202 136, 194 148 C184 158, 152 143, 128 122 Z" />
+        <path class="wolf-body-shape" d="M72 68 C97 54, 132 56, 152 76 C166 90, 170 114, 162 133 C152 157, 124 170, 94 168 C64 166, 44 148, 40 124 C36 98, 48 78, 72 68 Z" />
+        <path class="wolf-chest-shape" d="M84 92 C92 78, 108 74, 118 82 C126 92, 124 116, 114 130 C104 144, 88 144, 80 132 C74 120, 76 106, 84 92 Z" />
+        <path class="wolf-neck-shape" d="M66 82 C72 62, 90 44, 110 42 C126 42, 138 50, 140 62 C142 76, 132 88, 118 96 C102 104, 78 106, 66 82 Z" />
+        <path class="wolf-head-shape" d="M48 28 C62 18, 82 18, 96 26 C104 32, 108 44, 106 56 C104 74, 88 84, 68 84 C48 82, 34 70, 34 54 C34 44, 38 34, 48 28 Z" />
+        <path class="wolf-muzzle-shape" d="M86 40 C98 42, 110 50, 118 60 C122 66, 120 72, 112 74 C98 78, 78 74, 72 64 C68 56, 74 40, 86 40 Z" />
+        <path class="wolf-jaw-shape" d="M82 66 C98 70, 110 76, 116 88 C112 96, 102 102, 88 100 C74 98, 66 90, 68 82 C70 76, 74 70, 82 66 Z" />
+        <path class="wolf-ear-left-shape" d="M52 22 L64 2 L74 26 Z" />
+        <path class="wolf-ear-right-shape" d="M74 24 L92 10 L90 34 Z" />
+        <path class="wolf-leg-back-shape" d="M116 152 C126 150, 134 156, 134 166 L130 204 C128 210, 120 212, 116 206 L114 170 C114 162, 112 156, 116 152 Z" />
+        <path class="wolf-leg-back2-shape" d="M146 146 C154 146, 160 154, 158 164 L152 205 C150 211, 142 213, 138 208 L138 168 C138 160, 140 150, 146 146 Z" />
+        <path class="wolf-leg-front-shape" d="M74 150 C82 144, 94 146, 98 156 L94 206 C92 212, 84 214, 80 208 L76 170 C74 162, 70 156, 74 150 Z" />
+        <path class="wolf-leg-front2-shape" d="M96 144 C106 140, 116 146, 118 156 L114 206 C112 212, 104 214, 100 208 L98 168 C98 160, 94 150, 96 144 Z" />
+        <ellipse class="wolf-eye-shape" cx="66" cy="46" rx="3.4" ry="4.1" />
+        <ellipse class="wolf-eye-shape" cx="78" cy="49" rx="2.8" ry="3.4" />
+        <path class="wolf-brow" d="M58 40 C64 36, 70 36, 76 40" />
+        <path class="wolf-nose-shape" d="M112 66 C116 66, 120 68, 120 72 C120 76, 116 78, 112 78 C108 78, 104 76, 104 72 C104 68, 108 66, 112 66 Z" />
+        <path class="wolf-fang-left" d="M94 84 L98 98 L92 98 Z" />
+        <path class="wolf-fang-right" d="M104 88 L108 102 L102 102 Z" />
+        <path class="wolf-snarl" d="M84 82 C94 88, 102 90, 112 88" />
+      </svg>
+      <span>${bossDisplayName()}</span>
+    `;
+    return;
+  }
+  dom.bossPortrait.classList.remove("wolf-pack");
+  dom.bossPortrait.innerHTML = `
+    <div class="boss-horn boss-horn-left"></div>
+    <div class="boss-horn boss-horn-right"></div>
+    <div class="boss-shoulder boss-shoulder-left"></div>
+    <div class="boss-shoulder boss-shoulder-right"></div>
+    <div class="boss-upperarm boss-upperarm-left"></div>
+    <div class="boss-upperarm boss-upperarm-right"></div>
+    <div class="boss-forearm boss-forearm-left"></div>
+    <div class="boss-forearm boss-forearm-right"></div>
+    <div class="boss-fist boss-fist-left"></div>
+    <div class="boss-fist boss-fist-right"></div>
+    <div class="boss-neck"></div>
+    <div class="boss-core"></div>
+    <div class="boss-lava boss-lava-chest"></div>
+    <div class="boss-lava boss-lava-left"></div>
+    <div class="boss-lava boss-lava-right"></div>
+    <div class="boss-face">
+      <span class="boss-eye boss-eye-left"></span>
+      <span class="boss-eye boss-eye-right"></span>
+      <span class="boss-mouth"></span>
+    </div>
+    <span>${bossDisplayName()}</span>
+  `;
+}
+
+function setBattleConfig(nodeKey) {
+  const config = BATTLE_CONFIGS[nodeKey] || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  state.currentBattleKey = nodeKey;
+  state.currentBattleConfig = config;
+  state.bossName = config.bossName;
+  state.bossMaxHp = config.bossMaxHp;
+  state.bossCount = config.bossCount || 1;
+  state.bossWave = 1;
+  state.bossPatternIndex = 0;
+  state.bossDamageBoost = 1;
+}
+
+function maybeAdvanceBossWave() {
+  if (state.currentBattleKey !== NODE_KEYS.forest_1_3) return false;
+  if (state.bossWave >= state.bossCount) return false;
+  state.bossWave += 1;
+  state.bossHp = state.bossMaxHp;
+  state.phase = "player";
+  state.bossFrozen = false;
+  state.bossDamageReduction = 0;
+  state.bossPatternIndex = 0;
+  state.bossDamageBoost = 1;
+  state.nextBossAction = chooseBossAction();
+  state.selectedDice.clear();
+  addLog("system", `第 <strong>${state.bossWave}</strong> 只迅猛狼扑了上来。`);
+  addLog("boss", `新的敌意浮现：<strong>${state.nextBossAction.label}</strong>。`);
+  showToast(`第 ${state.bossWave} 只迅猛狼登场，你可以继续行动。`);
+  renderDice();
+  syncBattleUi();
+  return true;
+}
+
+function grantRandomWolfRelic() {
+  const pool = Object.keys(RELIC_DEFS).filter((id) => !state.relics.has(id));
+  const fallback = Object.keys(RELIC_DEFS);
+  const chosenId = (pool.length ? pool : fallback)[Math.floor(Math.random() * (pool.length ? pool.length : fallback.length))];
+  state.relics.add(chosenId);
+  showToast(`获得圣物：${RELIC_DEFS[chosenId].name}`);
+  addLog("system", `你获得了圣物 <strong>${RELIC_DEFS[chosenId].name}</strong>：${RELIC_DEFS[chosenId].description}`);
+  return RELIC_DEFS[chosenId];
 }
 
 function renderEventStatus() {
@@ -783,32 +1002,49 @@ function updateSelectionInfo() {
 
 function bossActionMeta(action) {
   if (!action) return { icon: "?", title: "石像守卫正在观察你", text: "预告区会显示它下一次行动。", badge: "待揭示", preview: "预告中" };
-  if (action.id === "attack") return { icon: "刃", title: "普通攻击", text: "预计造成 20 点伤害。", badge: "轻击", preview: "即将普通攻击" };
-  if (action.id === "slam") return { icon: "爆", title: "蓄力重击", text: "预计造成 50 点伤害，建议提前准备金属化或护盾。", badge: "高伤", preview: "即将蓄力重击" };
-  return { icon: "+", title: "生命恢复", text: "预计回复 30 点生命，这通常是你的输出窗口。", badge: "回血", preview: "即将恢复生命" };
+  if (action.id === "attack") return { icon: "刃", title: action.label, text: `预计造成 ${Math.round(action.value * state.bossDamageBoost)} 点伤害。`, badge: state.bossDamageBoost > 1 ? "强化" : "轻击", preview: `即将${action.label}` };
+  if (action.id === "slam") return { icon: "爆", title: action.label, text: `预计造成 ${action.value} 点伤害，建议提前准备金属化或护盾。`, badge: "高伤", preview: `即将${action.label}` };
+  return { icon: "+", title: action.label, text: state.currentBattleKey === NODE_KEYS.forest_1_3 ? `回复 ${action.value} 点生命，并让下一次攻击伤害提升 50%。` : `预计回复 ${action.value} 点生命，这通常是你的输出窗口。`, badge: "回血", preview: `即将${action.label}` };
 }
 
 function getGuideTip() {
   const action = state.nextBossAction;
   if (!action) return { title: "先观察 Boss 的下一招", text: "预告区会告诉你下一回合应该保命还是抢伤害。" };
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    if (action.id === "heal") return { title: "野性咆哮后要准备防御", text: "它回完血后的下一击会强化 50%，尽量提前准备金属化、护盾或冻结。" };
+    if (state.bossDamageBoost > 1) return { title: "下一击已经强化", text: "这回合更适合保命，不要硬吃强化后的利爪撕咬。" };
+    return { title: "抓紧清掉当前这只狼", text: "狼群是连续车轮战，尽量在低风险回合多打伤害，减少后续压力。" };
+  }
   if (action.id === "slam") return { title: "优先考虑保命", text: "尽量凑三个金或三个土，实在没有也可以使用黄色药丸冻结 Boss。" };
   if (action.id === "heal") return { title: "这是抢节奏的机会", text: "回血回合适合拼火、水或直接追求五以太终结。" };
   return { title: "维持血线并持续压制", text: "普通攻击压力不大，可以继续找输出或补充资源。" };
 }
 
 function syncBattleUi() {
+  const bossName = bossDisplayName();
+  renderBossPortrait();
   dom.goldCount.textContent = String(state.gold);
-  dom.playerHpLabel.textContent = `${state.playerHp} / ${MAX_PLAYER_HP}`;
-  dom.playerHpBar.style.width = `${(state.playerHp / MAX_PLAYER_HP) * 100}%`;
-  dom.bossHpLabel.textContent = `${state.bossHp} / ${MAX_BOSS_HP}`;
-  dom.bossHpBar.style.width = `${(state.bossHp / MAX_BOSS_HP) * 100}%`;
-  dom.turnCounter.textContent = `回合 ${state.turn} / ${MAX_TURNS}`;
+  dom.playerHpLabel.textContent = `${state.playerHp} / ${state.playerMaxHp}`;
+  dom.playerHpBar.style.width = `${(state.playerHp / state.playerMaxHp) * 100}%`;
+  dom.bossHpLabel.textContent = `${state.bossHp} / ${state.bossMaxHp}`;
+  dom.bossHpBar.style.width = `${(state.bossHp / state.bossMaxHp) * 100}%`;
+  dom.turnCounter.textContent = `回合 ${state.turn} / ${currentBasePlays()}`;
   dom.rerollCounter.textContent = String(state.rerollsLeft);
   dom.playCounter.textContent = String(state.playsLeft);
   dom.metalState.textContent = state.metalGuard ? "已激活" : "未激活";
   dom.shieldState.textContent = state.shieldHp > 0 ? `${state.shieldHp} / ${state.shieldTurns}` : "0 / 0";
   dom.freezeState.textContent = state.bossFrozen ? "已冻结" : "无";
-  dom.bossState.textContent = state.bossDamageReduction > 0 ? `伤害 -${state.bossDamageReduction}` : "石纹微震";
+  dom.bossState.textContent = state.bossDamageBoost > 1
+    ? "下一击强化"
+    : state.bossDamageReduction > 0
+      ? `伤害 -${state.bossDamageReduction}`
+      : state.currentBattleKey === NODE_KEYS.forest_1_3
+        ? "狼群环伺"
+        : "石纹微震";
+  const bossPortraitName = document.querySelector(".boss-portrait > span");
+  const bossCardTitle = document.querySelector(".boss-card .status-head h2");
+  if (bossPortraitName) bossPortraitName.textContent = bossName;
+  if (bossCardTitle) bossCardTitle.textContent = bossName;
   dom.phaseBadge.textContent = state.phase === "player" ? "玩家回合" : state.phase === "boss" ? "Boss 回合" : "战斗结束";
   dom.pauseButton.disabled = state.gameOver;
   dom.pauseButton.textContent = state.paused ? "继续" : "暂停";
@@ -939,29 +1175,31 @@ function applyBasicSkill(elementId) {
     return;
   }
   if (elementId === "wood") {
-    damageBoss(50);
+    const damage = 50 + playerDamageBonus();
+    damageBoss(damage);
     const healed = healPlayer(20);
-    addLog("player", `你发动了 <strong>树藤缠绕</strong>，造成 <strong>50</strong> 点伤害并回复 <strong>${healed}</strong> 点生命。`);
+    addLog("player", `你发动了 <strong>树藤缠绕</strong>，造成 <strong>${damage}</strong> 点伤害并回复 <strong>${healed}</strong> 点生命。`);
     showToast("树藤缠绕命中。");
     showSkillEffect("wood", "树藤缠绕", "VINE WRAP");
     runSkillTrajectory("wood", "boss");
-    showBattleFloat(".boss-card", "-50", "damage");
+    showBattleFloat(".boss-card", `-${damage}`, "damage");
     showBattleFloat(".player-card", `+${healed}`, "heal");
     return;
   }
   if (elementId === "water") {
-    damageBoss(80);
+    const damage = 80 + playerDamageBonus();
+    damageBoss(damage);
     const frozen = Math.random() < 0.3;
     if (frozen) state.bossFrozen = true;
-    addLog("player", `你发动了 <strong>冰霜冲击</strong>，造成 <strong>80</strong> 点伤害${frozen ? "，并冻结了 Boss 的下一次行动" : ""}。`);
+    addLog("player", `你发动了 <strong>冰霜冲击</strong>，造成 <strong>${damage}</strong> 点伤害${frozen ? "，并冻结了 Boss 的下一次行动" : ""}。`);
     showToast(frozen ? "冰霜冲击冻结了 Boss。" : "冰霜冲击命中。");
     showSkillEffect("water", "冰霜冲击", "FROST SURGE");
     runSkillTrajectory("water", "boss");
-    showBattleFloat(".boss-card", "-80", "damage");
+    showBattleFloat(".boss-card", `-${damage}`, "damage");
     return;
   }
   if (elementId === "fire") {
-    const damage = 100 + (state.relics.has("ember_sigil") ? 10 : 0);
+    const damage = 100 + playerDamageBonus();
     damageBoss(damage);
     addLog("player", `你发动了 <strong>火焰弹</strong>，对 Boss 造成 <strong>${damage}</strong> 点伤害。`);
     showToast("火焰弹命中。");
@@ -984,7 +1222,8 @@ function applyMediumSkill(skill) {
   showSkillEffect(skill.element, skill.name, "ADVANCED SKILL");
   runSkillTrajectory(skill.element, result.healPlayer || result.shield || result.reduceBossDamage ? "player" : "boss");
   if (result.selfDamage) state.playerHp = Math.max(0, state.playerHp - result.selfDamage);
-  if (result.damageBoss) damageBoss(result.damageBoss);
+  const finalDamage = result.damageBoss ? result.damageBoss + playerDamageBonus() : 0;
+  if (finalDamage) damageBoss(finalDamage);
   if (result.healPlayer) healPlayer(result.healPlayer);
   if (result.shield) {
     state.shieldHp += result.shield;
@@ -992,7 +1231,7 @@ function applyMediumSkill(skill) {
   }
   if (result.reduceBossDamage) state.bossDamageReduction += result.reduceBossDamage;
   if (result.refundPlay) state.playsLeft += result.refundPlay;
-  if (result.damageBoss) showBattleFloat(".boss-card", `-${result.damageBoss}`, "damage");
+  if (finalDamage) showBattleFloat(".boss-card", `-${finalDamage}`, "damage");
   if (result.healPlayer) showBattleFloat(".player-card", `+${result.healPlayer}`, "heal");
   if (result.shield) showBattleFloat(".player-card", `+${result.shield} 护盾`, "shield");
   if (result.selfDamage) showBattleFloat(".player-card", `-${result.selfDamage}`, "damage");
@@ -1032,6 +1271,7 @@ function resolvePlayerAction() {
   renderDice(selectedIds);
   syncBattleUi();
   if (checkBattleEnd()) return;
+  if (state.phase !== "boss") return;
   state.bossTimerId = window.setTimeout(() => {
     state.bossTimerId = null;
     resolveBossTurn();
@@ -1039,14 +1279,12 @@ function resolvePlayerAction() {
 }
 
 function chooseBossAction() {
-  const roll = Math.random();
-  if (roll < 0.5) return { id: "attack", label: "普通攻击", value: 20 };
-  if (roll < 0.7) return { id: "slam", label: "蓄力重击", value: 50 };
-  return { id: "heal", label: "生命恢复", value: 30 };
+  const config = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  return config.chooseBossAction();
 }
 
 function updateTurnState() {
-  state.turn = Math.min(MAX_TURNS, MAX_TURNS - state.playsLeft + 1);
+  state.turn = Math.min(currentBasePlays(), currentBasePlays() - state.playsLeft + 1);
 }
 
 function resolveBossTurn() {
@@ -1055,6 +1293,7 @@ function resolveBossTurn() {
   dom.bossIntent.textContent = "行动中";
   if (state.bossFrozen) {
     state.bossFrozen = false;
+    state.bossPatternIndex += 1;
     addLog("boss", "石像守卫被寒冰冻结，本回合无法行动。");
     showToast("Boss 行动被跳过。");
     playSound("freeze");
@@ -1064,18 +1303,27 @@ function resolveBossTurn() {
   }
   if (action.id === "heal") {
     healBoss(action.value);
-    addLog("boss", `石像守卫发动 <strong>${action.label}</strong>，回复了 <strong>${action.value}</strong> 点生命。`);
-    showToast("Boss 回复了生命。");
+    if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+      state.bossDamageBoost = 1.5;
+      addLog("boss", `迅猛狼发动 <strong>${action.label}</strong>，回复了 <strong>${action.value}</strong> 点生命，并让下一次攻击伤害提升 50%。`);
+      showToast("野性咆哮强化了下一次攻击。");
+    } else {
+      addLog("boss", `石像守卫发动 <strong>${action.label}</strong>，回复了 <strong>${action.value}</strong> 点生命。`);
+      showToast("Boss 回复了生命。");
+    }
     showBattleFloat(".boss-card", `+${action.value}`, "heal");
     playSound("bossHeal");
   } else {
-    const dealt = damagePlayer(action.value);
-    addLog("boss", `石像守卫发动 <strong>${action.label}</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
+    const damageValue = Math.round(action.value * state.bossDamageBoost);
+    const dealt = damagePlayer(damageValue);
+    addLog("boss", `${bossDisplayName()} 发动 <strong>${action.label}</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
     showToast(`Boss 使出了 ${action.label}。`);
     showBattleFloat(".player-card", dealt === 0 ? "免疫" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
     applyTransientClass(".player-card", "impact", 500);
     playSound(action.id === "slam" ? "bossSlam" : "bossAttack");
+    state.bossDamageBoost = 1;
   }
+  state.bossPatternIndex += 1;
   consumeShieldTurn();
   syncBattleUi();
   if (checkBattleEnd()) return;
@@ -1099,23 +1347,42 @@ function finishRound() {
 
 function checkBattleEnd(forceTurnCheck = false) {
   if (state.bossHp <= 0) {
+    if (maybeAdvanceBossWave()) {
+      return false;
+    }
     state.gameOver = true;
     state.phase = "end";
-    const firstClear = !hasCompleted(NODE_KEYS.forest_1_1);
+    const nodeKey = state.currentBattleKey || NODE_KEYS.forest_1_1;
+    const firstClear = !hasCompleted(nodeKey);
+    let relic = null;
     if (firstClear) {
-      completeNode(NODE_KEYS.forest_1_1);
-      addGold(FIRST_LEVEL_CLEAR_GOLD);
-      state.overlayAction = "treasure";
+      completeNode(nodeKey);
+      addGold(state.currentBattleConfig?.rewardGold || 0);
+      if (state.currentBattleConfig?.rewardType === "treasure") {
+        state.overlayAction = "treasure";
+      } else if (state.currentBattleConfig?.rewardType === "wolf_relic") {
+        relic = grantRandomWolfRelic();
+        state.overlayAction = "map";
+      } else {
+        state.overlayAction = "map";
+      }
     } else {
       state.overlayAction = "map";
     }
     syncBattleUi();
     dom.overlayEyebrow.textContent = "挑战成功";
-    dom.overlayTitle.textContent = "石像守卫已被击碎";
-    dom.overlayText.textContent = firstClear ? `你完成了首关挑战，并获得 ${FIRST_LEVEL_CLEAR_GOLD} 枚金币。接下来会进入第 2 个地点的宝箱事件。` : "你再次击败了石像守卫，可以返回地图继续查看路线。";
-    dom.overlayButton.textContent = firstClear ? "进入第 2 地点" : "返回地图";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_3 ? "迅猛狼群已被击退" : "石像守卫已被击碎";
+    if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+      dom.overlayText.textContent = firstClear
+        ? `你连续击败了三只迅猛狼，获得 ${THIRD_LEVEL_CLEAR_GOLD} 枚金币，并拿到圣物“${relic?.name || "未知圣物"}”。效果：${relicEffectText(relic)}`
+        : "你再次击退了迅猛狼群，可以返回地图继续前进。";
+      dom.overlayButton.textContent = "返回地图";
+    } else {
+      dom.overlayText.textContent = firstClear ? `你完成了首关挑战，并获得 ${FIRST_LEVEL_CLEAR_GOLD} 枚金币。接下来会进入第 2 个地点的宝箱事件。` : "你再次击败了石像守卫，可以返回地图继续查看路线。";
+      dom.overlayButton.textContent = firstClear ? "进入第 2 地点" : "返回地图";
+    }
     dom.overlay.classList.remove("hidden");
-    addLog("system", "战斗结束。你成功击败了石像守卫。");
+    addLog("system", `战斗结束。你成功击败了 ${state.currentBattleConfig?.bossName || "Boss"}。`);
     playSound("win");
     renderMap();
     return true;
@@ -1123,10 +1390,10 @@ function checkBattleEnd(forceTurnCheck = false) {
   if (state.playerHp <= 0) {
     state.gameOver = true;
     state.phase = "end";
-    state.overlayAction = "reset";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
     syncBattleUi();
     dom.overlayEyebrow.textContent = "挑战失败";
-    dom.overlayTitle.textContent = "你被石像守卫击倒";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_3 ? "你被狼群撕碎了防线" : "你被石像守卫击倒";
     dom.overlayText.textContent = "生命归零，遗迹深处再度归于沉寂。";
     dom.overlayButton.textContent = "再来一局";
     dom.overlay.classList.remove("hidden");
@@ -1137,11 +1404,11 @@ function checkBattleEnd(forceTurnCheck = false) {
   if (forceTurnCheck && state.playsLeft <= 0 && state.bossHp > 0) {
     state.gameOver = true;
     state.phase = "end";
-    state.overlayAction = "reset";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
     syncBattleUi();
     dom.overlayEyebrow.textContent = "挑战失败";
-    dom.overlayTitle.textContent = "六回合已尽";
-    dom.overlayText.textContent = "石像守卫仍然屹立，第一关挑战失败。";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_3 ? "出骰机会已尽" : "六回合已尽";
+    dom.overlayText.textContent = state.currentBattleKey === NODE_KEYS.forest_1_3 ? "十次出骰机会已经耗尽，狼群仍未被清空，第三关挑战失败。" : "石像守卫仍然屹立，第一关挑战失败。";
     dom.overlayButton.textContent = "再来一局";
     dom.overlay.classList.remove("hidden");
     addLog("system", "第 6 回合结束后 Boss 仍然存活，本次挑战失败。");
@@ -1303,11 +1570,18 @@ function playSound(kind) {
 
 function resetBattleState() {
   clearBossTimer();
-  state.playerHp = MAX_PLAYER_HP;
-  state.bossHp = MAX_BOSS_HP;
+  state.playerMaxHp = currentPlayerMaxHp();
+  state.playerHp = state.playerMaxHp;
+  state.bossMaxHp = state.currentBattleConfig?.bossMaxHp ?? MAX_BOSS_HP;
+  state.bossHp = state.bossMaxHp;
+  state.bossName = state.currentBattleConfig?.bossName || "石像守卫";
+  state.bossWave = 1;
+  state.bossCount = state.currentBattleConfig?.bossCount || 1;
+  state.bossPatternIndex = 0;
+  state.bossDamageBoost = 1;
   state.turn = 1;
-  state.rerollsLeft = TOTAL_REROLLS;
-  state.playsLeft = MAX_TURNS;
+  state.rerollsLeft = currentBaseRerolls();
+  state.playsLeft = currentBasePlays();
   state.selectedDice.clear();
   state.phase = "player";
   state.gameOver = false;
@@ -1319,16 +1593,11 @@ function resetBattleState() {
   state.bossDamageReduction = 0;
   state.nextBossAction = chooseBossAction();
   state.dice = Array.from({ length: DICE_COUNT }, (_, index) => createDie(index));
-  if (state.relics.has("tide_orb")) {
-    state.shieldHp += 20;
-    state.shieldTurns = Math.max(state.shieldTurns, 2);
-  }
   dom.battleLog.innerHTML = "";
   dom.overlay.classList.add("hidden");
   dom.pauseOverlay.classList.add("hidden");
-  addLog("system", "战斗开始。石像守卫从遗迹中苏醒，你先手行动。");
-  if (state.relics.has("tide_orb")) addLog("system", "圣物 <strong>潮汐法球</strong> 生效：你在开局获得了 20 点护盾。");
-  addLog("boss", `石像守卫露出了下一步意图：<strong>${state.nextBossAction.label}</strong>。`);
+  addLog("system", state.currentBattleConfig?.introLog || "战斗开始。");
+  addLog("boss", `${bossDisplayName()} 露出了下一步意图：<strong>${state.nextBossAction.label}</strong>。`);
   renderDice();
   syncBattleUi();
 }
@@ -1343,6 +1612,7 @@ function resetRun() {
   state.relics = new Set();
   state.learnedMediumSkills = new Set();
   state.mapPage = 0;
+  setBattleConfig(NODE_KEYS.forest_1_1);
   resetBattleState();
   dom.overlay.classList.add("hidden");
   closeHelp();
@@ -1350,9 +1620,18 @@ function resetRun() {
 }
 
 function startFirstLevel() {
+  setBattleConfig(NODE_KEYS.forest_1_1);
   resetBattleState();
   setView("battle");
   showToast("第一关开始。");
+  playSound("select");
+}
+
+function startThirdLevel() {
+  setBattleConfig(NODE_KEYS.forest_1_3);
+  resetBattleState();
+  setView("battle");
+  showToast("第三关开始。");
   playSound("select");
 }
 
@@ -1400,6 +1679,10 @@ dom.overlayButton.addEventListener("click", () => {
     returnToMap();
     return;
   }
+  if (state.overlayAction === "run_reset") {
+    resetRun();
+    return;
+  }
   if (state.overlayAction === "treasure") {
     openTreasureEvent();
     return;
@@ -1411,6 +1694,7 @@ dom.audioButton.addEventListener("click", toggleAudio);
 window.addEventListener("pointerdown", ensureAudio, { once: true });
 
 applyStaticCopy();
+setBattleConfig(NODE_KEYS.forest_1_1);
 renderMap();
 renderItemBar();
 renderRelicBar();
