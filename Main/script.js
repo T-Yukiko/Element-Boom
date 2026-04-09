@@ -4,7 +4,7 @@ const ELEMENTS = {
   water: { id: "water", name: "水", label: "寒潮", symbol: "水", css: "element-water", description: "高额冲击，并有机会冻结 Boss。" },
   fire: { id: "fire", name: "火", label: "烈焰", symbol: "火", css: "element-fire", description: "最直接的爆发伤害。" },
   earth: { id: "earth", name: "土", label: "磐岩", symbol: "土", css: "element-earth", description: "提供护盾，用来硬抗强力攻击。" },
-  aether: { id: "aether", name: "以太", label: "以太", symbol: "★", css: "element-aether", description: "集齐五枚可直接终结战斗。" },
+  aether: { id: "aether", name: "以太", label: "以太", symbol: "★", css: "element-aether", description: "一种神秘的元素，有意想不到的作用。" },
 };
 
 const ELEMENT_ORDER = ["metal", "wood", "water", "fire", "earth", "aether"];
@@ -1780,10 +1780,7 @@ function openShop() {
 
 function leaveShop() {
   if (!hasCompleted(NODE_KEYS.forest_1_4)) completeNode(NODE_KEYS.forest_1_4);
-  renderMap();
-  renderRelicBar();
-  setView("map");
-  showToast("你离开了商店，前方的 1-5 节点已经亮起。");
+  startFifthLevel();
 }
 
 function shopStatusCards() {
@@ -2241,7 +2238,6 @@ function resetRun() {
 
 function returnToMap() {
   clearBossTimer();
-  if (state.currentView === "shop" && !hasCompleted(NODE_KEYS.forest_1_4)) completeNode(NODE_KEYS.forest_1_4);
   state.paused = false;
   dom.pauseOverlay.classList.add("hidden");
   dom.overlay.classList.add("hidden");
