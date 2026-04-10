@@ -148,6 +148,36 @@
       </article>
     </section>
 
+    <section id="libraryView" class="library-view hidden-view">
+      <article class="library-card">
+        <div class="library-hero">
+          <div class="library-copy">
+            <p id="libraryEyebrow" class="eyebrow">奖励关 / 大图书馆</p>
+            <h2 id="libraryTitle">迷雾森林：大图书馆</h2>
+            <p id="libraryText" class="subtitle">
+              月光穿过高窗，落在成排古籍与静燃篝火之间。你可以在这里休憩、求知，或将一颗骰子送入秘火之炉进行精炼。
+            </p>
+          </div>
+          <div class="library-hero-actions">
+            <button id="libraryBackButton" class="ghost-button" type="button">返回地图</button>
+          </div>
+        </div>
+
+        <div class="library-atlas">
+          <div class="library-orbit library-orbit-a"></div>
+          <div class="library-orbit library-orbit-b"></div>
+          <div class="library-spire"></div>
+          <div class="library-window library-window-left"></div>
+          <div class="library-window library-window-right"></div>
+          <div class="library-flame"></div>
+          <div class="library-dust"></div>
+        </div>
+
+        <div id="libraryStatus" class="library-status"></div>
+        <div id="libraryChoices" class="library-grid"></div>
+      </article>
+    </section>
+
     <main id="battleView" class="battle-layout hidden-view">
       <section class="combatants">
         <article class="status-card player-card">
@@ -417,6 +447,14 @@
     </div>
   </div>
 
+  <script src="./architecture/00-runtime.js"></script>
+  <script src="./architecture/10-data-config.js"></script>
+  <script src="./architecture/20-map-config.js"></script>
+  <script src="./architecture/30-battle-config.js"></script>
+  <script src="./architecture/40-shop-config.js"></script>
+  <script src="./architecture/50-current-content-pack.js"></script>
   <script src="./script.js"></script>
+  <script src="./architecture/70-runtime-sync.js"></script>
+  <script src="./architecture/80-content-validator.js"></script>
 </body>
 </html>

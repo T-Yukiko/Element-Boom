@@ -8,6 +8,8 @@ const ELEMENTS = {
 };
 
 const ELEMENT_ORDER = ["metal", "wood", "water", "fire", "earth", "aether"];
+const ENHANCEABLE_ELEMENTS = ["metal", "wood", "water", "fire", "earth"];
+const MAX_DIE_FACE_LEVEL = 3;
 const BASE_PLAYER_HP = 100;
 const MAX_BOSS_HP = 200;
 const MAX_TURNS = 6;
@@ -27,6 +29,16 @@ const NODE_KEYS = {
   forest_1_3: "forest_1_3",
   forest_1_4: "forest_1_4",
   forest_1_5: "forest_1_5",
+  forest_1_6: "forest_1_6",
+};
+
+const ELEMENT_TIER_NAMES = {
+  metal: ["金", "钢", "陨"],
+  wood: ["木", "森", "苍"],
+  water: ["水", "冰", "霜"],
+  fire: ["火", "炎", "焱"],
+  earth: ["土", "岩", "磐"],
+  aether: ["以太"],
 };
 
 const MAP_PAGES = [
@@ -222,6 +234,7 @@ const dom = {
   mapView: document.querySelector("#mapView"),
   eventView: document.querySelector("#eventView"),
   shopView: document.querySelector("#shopView"),
+  libraryView: document.querySelector("#libraryView"),
   battleView: document.querySelector("#battleView"),
   mapButton: document.querySelector("#mapButton"),
   pauseButton: document.querySelector("#pauseButton"),
@@ -256,6 +269,12 @@ const dom = {
   shopRelics: document.querySelector("#shopRelics"),
   shopBackButton: document.querySelector("#shopBackButton"),
   shopLeaveButton: document.querySelector("#shopLeaveButton"),
+  libraryEyebrow: document.querySelector("#libraryEyebrow"),
+  libraryTitle: document.querySelector("#libraryTitle"),
+  libraryText: document.querySelector("#libraryText"),
+  libraryStatus: document.querySelector("#libraryStatus"),
+  libraryChoices: document.querySelector("#libraryChoices"),
+  libraryBackButton: document.querySelector("#libraryBackButton"),
   turnCounter: document.querySelector("#turnCounter"),
   bossPortrait: document.querySelector(".boss-portrait"),
   playerHpLabel: document.querySelector("#playerHpLabel"),
@@ -318,6 +337,7 @@ const state = {
   relics: new Set(),
   shopRelics: new Set(),
   learnedMediumSkills: new Set(),
+  runBonusMaxHp: 0,
   audioEnabled: true,
   paused: false,
   gameOver: false,
@@ -337,6 +357,7 @@ const state = {
   playsLeft: MAX_TURNS,
   selectedDice: new Set(),
   dice: [],
+  diceBlueprints: Array.from({ length: DICE_COUNT }, (_, index) => createDieBlueprint(index)),
   phase: "player",
   metalGuard: false,
   shieldHp: 0,
@@ -418,8 +439,71 @@ function randomElement() {
   return ELEMENT_ORDER[Math.floor(Math.random() * ELEMENT_ORDER.length)];
 }
 
-function createDie(index) {
-  return { id: `die-${index + 1}`, face: randomElement() };
+function cloneDieTiers(tiers = {}) {
+  return Object.fromEntries(ELEMENT_ORDER.map((elementId) => [
+    elementId,
+    elementId === "aether"
+      ? 1
+      : Math.max(1, Math.min(MAX_DIE_FACE_LEVEL, tiers[elementId] || 1)),
+  ]));
+}
+
+function createDieBlueprint(index) {
+  return {
+    id: `die-${index + 1}`,
+    tiers: cloneDieTiers(),
+  };
+}
+
+function ensureDieBlueprints() {
+  if (Array.isArray(state.diceBlueprints) && state.diceBlueprints.length === DICE_COUNT) return;
+  state.diceBlueprints = Array.from({ length: DICE_COUNT }, (_, index) => createDieBlueprint(index));
+}
+
+function createDie(index, blueprint = state.diceBlueprints?.[index]) {
+  const safeBlueprint = blueprint || createDieBlueprint(index);
+  return {
+    id: safeBlueprint.id || `die-${index + 1}`,
+    face: randomElement(),
+    tiers: cloneDieTiers(safeBlueprint.tiers),
+  };
+}
+
+function getDieFaceLevel(die, faceId = die?.face) {
+  if (!die || !faceId || faceId === "aether") return 1;
+  return Math.max(1, Math.min(MAX_DIE_FACE_LEVEL, die.tiers?.[faceId] || 1));
+}
+
+function getDieFaceTierName(faceId, level = 1) {
+  const names = ELEMENT_TIER_NAMES[faceId] || [ELEMENTS[faceId]?.label || faceId];
+  return names[Math.max(1, Math.min(level, names.length)) - 1] || names[0];
+}
+
+function getDieFaceDisplayLabel(die, faceId = die?.face) {
+  return getDieFaceTierName(faceId, getDieFaceLevel(die, faceId));
+}
+
+function syncDieBlueprintsFromDice(dice = state.dice) {
+  ensureDieBlueprints();
+  dice.forEach((die, index) => {
+    if (!state.diceBlueprints[index]) state.diceBlueprints[index] = createDieBlueprint(index);
+    state.diceBlueprints[index].id = die.id;
+    state.diceBlueprints[index].tiers = cloneDieTiers(die.tiers);
+  });
+}
+
+function upgradeDieFace(dieId, elementId, amount = 1) {
+  if (!ENHANCEABLE_ELEMENTS.includes(elementId)) return 0;
+  ensureDieBlueprints();
+  const blueprint = state.diceBlueprints.find((die) => die.id === dieId);
+  if (!blueprint) return 0;
+  const currentLevel = blueprint.tiers?.[elementId] || 1;
+  const nextLevel = Math.max(1, Math.min(MAX_DIE_FACE_LEVEL, currentLevel + amount));
+  if (nextLevel === currentLevel) return currentLevel;
+  blueprint.tiers[elementId] = nextLevel;
+  const liveDie = state.dice.find((die) => die.id === dieId);
+  if (liveDie) liveDie.tiers[elementId] = nextLevel;
+  return nextLevel;
 }
 
 function clearBossTimer() {
@@ -662,6 +746,12 @@ function updateHeroForView() {
     dom.heroSubtitle.textContent = "从 3 种随机奖励中选择 1 种带走，奖励会永久保留到后续流程。";
     return;
   }
+  if (state.currentView === "library") {
+    dom.heroEyebrow.textContent = "奖励关 / 大图书馆";
+    dom.heroTitle.textContent = "迷雾森林：大图书馆";
+    dom.heroSubtitle.textContent = "在篝火、古籍与秘火铸炉之间作出一次永久选择，只能领取其中一项馈赠。";
+    return;
+  }
   const battle = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
   dom.heroEyebrow.textContent = battle.heroEyebrow;
   dom.heroTitle.textContent = battle.heroTitle;
@@ -757,7 +847,7 @@ function randomPick(array, count) {
 }
 
 function currentPlayerMaxHp() {
-  return BASE_PLAYER_HP + (state.relics.has("wolf_skin") ? 50 : 0);
+  return BASE_PLAYER_HP + state.runBonusMaxHp + (state.relics.has("wolf_skin") ? 50 : 0);
 }
 
 function currentBaseRerolls() {
@@ -976,6 +1066,197 @@ function learnRandomMediumSkill() {
   return { toast: `你学会了中级技能：${learned.name}。`, log: `你永久学会了中级技能 <strong>${learned.name}</strong>。` };
 }
 
+function enhancedFaceCount() {
+  ensureDieBlueprints();
+  return state.diceBlueprints.reduce((total, die) => total + ENHANCEABLE_ELEMENTS.filter((elementId) => (die.tiers?.[elementId] || 1) > 1).length, 0);
+}
+
+function libraryStatusCards() {
+  return [
+    {
+      label: "生命上限",
+      value: `${currentPlayerMaxHp()}`,
+      text: `基础 ${BASE_PLAYER_HP}，当前额外上限 ${state.runBonusMaxHp}。`,
+    },
+    {
+      label: "中级技能",
+      value: `${state.learnedMediumSkills.size}`,
+      text: availableMediumSkills().length ? `仍有 ${availableMediumSkills().length} 个未学会的四同技能。` : "已经学会全部中级技能。",
+    },
+    {
+      label: "骰面精炼",
+      value: `${enhancedFaceCount()}`,
+      text: "统计所有已经被强化到二级或三级的非以太骰面。",
+    },
+  ];
+}
+
+function renderLibraryStatus() {
+  dom.libraryStatus.innerHTML = libraryStatusCards().map((card) => `
+    <article class="library-status-card">
+      <span class="event-status-label">${card.label}</span>
+      <strong>${card.value}</strong>
+      <p>${card.text}</p>
+    </article>
+  `).join("");
+}
+
+function eligibleForgeBlueprints() {
+  ensureDieBlueprints();
+  return state.diceBlueprints.filter((die) => ENHANCEABLE_ELEMENTS.filter((elementId) => (die.tiers?.[elementId] || 1) < MAX_DIE_FACE_LEVEL).length >= 2);
+}
+
+function randomPickFrom(values) {
+  if (!values.length) return null;
+  return values[Math.floor(Math.random() * values.length)];
+}
+
+function refineRandomDieFaces() {
+  const die = randomPickFrom(eligibleForgeBlueprints());
+  if (!die) return null;
+  const upgradableFaces = ENHANCEABLE_ELEMENTS.filter((elementId) => (die.tiers?.[elementId] || 1) < MAX_DIE_FACE_LEVEL);
+  const selectedFaces = randomPick(upgradableFaces, 2);
+  const upgrades = selectedFaces.map((elementId) => {
+    const nextLevel = upgradeDieFace(die.id, elementId, 1);
+    return {
+      elementId,
+      level: nextLevel,
+      tierName: getDieFaceTierName(elementId, nextLevel),
+    };
+  });
+  return {
+    dieId: die.id,
+    dieLabel: `第 ${Number((die.id || "").split("-")[1] || 0)} 颗骰子`,
+    upgrades,
+  };
+}
+
+function libraryChoiceMeta(choiceId) {
+  if (choiceId === "campfire") {
+    return {
+      css: "library-choice fire",
+      icon: "火",
+      meta: "安眠修复",
+      detail: "永久生命上限 +30",
+      name: "篝火休眠",
+      description: "在馆心的静火旁沉睡片刻，让这一轮旅程的生命上限永久提高 30 点。",
+      bullets: ["直接提升后续容错", "与狼皮生命上限叠加", "本轮旅程永久生效"],
+      disabled: false,
+      foot: "稳健的长期增益",
+    };
+  }
+  if (choiceId === "reading") {
+    const remaining = availableMediumSkills().length;
+    return {
+      css: "library-choice book",
+      icon: "书",
+      meta: "知识赐福",
+      detail: remaining ? `剩余可学 ${remaining}` : "已无可学技能",
+      name: "古籍阅读",
+      description: "从未掌握的四同技能里随机学会 1 个，不会与已经学会的技能重复。",
+      bullets: ["永久加入技能池", "不会重复抽到旧技能", remaining ? "提升组合上限" : "当前已学完全部中级技能"],
+      disabled: remaining === 0,
+      foot: remaining ? "适合补足流派深度" : "当前没有新书可读",
+    };
+  }
+  const forgeable = eligibleForgeBlueprints().length;
+  return {
+    css: "library-choice forge",
+    icon: "炉",
+    meta: "秘火精炼",
+    detail: forgeable ? `可精炼骰子 ${forgeable}` : "暂无可精炼骰子",
+    name: "精炼铸骰",
+    description: "随机选取一颗骰子，永久强化它的两个非以太面。二级面视作两个同属性面，三级面视作三个。",
+    bullets: ["一次奖励提升两个面", "强化会跨后续战斗保留", forgeable ? "越早拿越赚" : "当前没有可继续提升的骰子"],
+    disabled: forgeable === 0,
+    foot: "让爆发更稳定地出现",
+  };
+}
+
+function renderLibraryChoices() {
+  dom.libraryChoices.innerHTML = "";
+  ["campfire", "reading", "forge"].forEach((choiceId) => {
+    const meta = libraryChoiceMeta(choiceId);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = meta.css;
+    button.disabled = meta.disabled || hasCompleted(NODE_KEYS.forest_1_6);
+    button.innerHTML = `
+      <div class="library-choice-top">
+        <div class="library-choice-icon">${meta.icon}</div>
+        <div class="library-choice-meta">${meta.meta}</div>
+      </div>
+      <div class="library-choice-detail">${meta.detail}</div>
+      <div>
+        <h3>${meta.name}</h3>
+        <p>${meta.description}</p>
+      </div>
+      <ul class="library-choice-list">
+        ${meta.bullets.map((bullet) => `<li>${bullet}</li>`).join("")}
+      </ul>
+      <div class="library-choice-foot">
+        <span>${meta.foot}</span>
+        <span>${button.disabled ? "不可领取" : "点击领取"}</span>
+      </div>
+    `;
+    button.addEventListener("click", () => claimLibraryReward(choiceId));
+    dom.libraryChoices.append(button);
+  });
+}
+
+function openGreatLibrary() {
+  if (!hasCompleted(NODE_KEYS.forest_1_5)) {
+    showToast("先完成 1-5，才能进入大图书馆。");
+    return;
+  }
+  if (dom.libraryEyebrow) dom.libraryEyebrow.textContent = "奖励关 / 大图书馆";
+  if (dom.libraryTitle) dom.libraryTitle.textContent = "迷雾森林：大图书馆";
+  if (dom.libraryText) dom.libraryText.textContent = "书塔、炉火与月色同时为你敞开。三项馈赠中只能领取其一，选择会永久影响这一轮后续战斗。";
+  renderLibraryStatus();
+  renderLibraryChoices();
+  setView("library");
+}
+
+function claimLibraryReward(choiceId) {
+  if (hasCompleted(NODE_KEYS.forest_1_6)) {
+    showToast("大图书馆的馈赠已经领取过了。");
+    return;
+  }
+
+  let toastMessage = "";
+  if (choiceId === "campfire") {
+    state.runBonusMaxHp += 30;
+    state.playerMaxHp = currentPlayerMaxHp();
+    state.playerHp = Math.min(state.playerMaxHp, state.playerHp + 30);
+    toastMessage = "生命上限永久提升 30。";
+  } else if (choiceId === "reading") {
+    if (!availableMediumSkills().length) {
+      showToast("当前没有可学习的新中级技能。");
+      renderLibraryChoices();
+      return;
+    }
+    const result = learnRandomMediumSkill();
+    toastMessage = result.toast;
+  } else {
+    const result = refineRandomDieFaces();
+    if (!result) {
+      showToast("当前没有可继续精炼的骰子。");
+      renderLibraryChoices();
+      return;
+    }
+    const detail = result.upgrades.map((item) => item.tierName).join(" / ");
+    toastMessage = `${result.dieLabel} 完成精炼：${detail}`;
+  }
+
+  completeNode(NODE_KEYS.forest_1_6);
+  renderLibraryStatus();
+  renderLibraryChoices();
+  renderSkillsPanel();
+  renderMap();
+  showToast(toastMessage);
+  returnToMap();
+}
+
 function claimTreasureReward(choice) {
   if (!state.currentEvent) return;
   if (choice.type === "item") {
@@ -1048,7 +1329,7 @@ function countsFromSelected() {
   const selected = state.dice.filter((die) => state.selectedDice.has(die.id));
   const counts = Object.fromEntries(ELEMENT_ORDER.map((id) => [id, 0]));
   selected.forEach((die) => {
-    counts[die.face] += 1;
+    counts[die.face] += getDieFaceLevel(die);
   });
   return { selected, counts };
 }
@@ -1150,6 +1431,7 @@ function syncBattleUi() {
   dom.rerollButton.disabled = disableActions || state.selectedDice.size === 0 || state.rerollsLeft <= 0;
   dom.playButton.disabled = disableActions || state.selectedDice.size === 0 || state.playsLeft <= 0;
   dom.clearButton.disabled = disableActions || state.selectedDice.size === 0;
+  renderBossRules();
   renderItemBar();
   renderRelicBar();
   renderSkillsPanel();
@@ -1159,11 +1441,13 @@ function renderDice(animatedIds = []) {
   dom.diceGrid.innerHTML = "";
   state.dice.forEach((die) => {
     const element = ELEMENTS[die.face];
+    const faceLevel = getDieFaceLevel(die);
+    const faceLabel = getDieFaceDisplayLabel(die);
     const button = document.createElement("button");
     button.type = "button";
     button.className = `die ${element.css}${state.selectedDice.has(die.id) ? " selected" : ""}${animatedIds.includes(die.id) ? " roll-flash" : ""}`;
     button.disabled = state.phase !== "player" || state.gameOver || state.paused;
-    button.innerHTML = `<div class="die-header"><span class="die-symbol">${element.symbol}</span><span class="die-tag">${element.label}</span></div><div class="die-name">${element.name}</div><div class="die-note">${element.description}</div>`;
+    button.innerHTML = `<div class="die-header"><span class="die-symbol">${faceLabel}</span><span class="die-tag">${element.label}${faceLevel > 1 ? ` x${faceLevel}` : ""}</span></div><div class="die-name">${element.name}</div><div class="die-note">${faceLevel > 1 ? `当前为 ${faceLabel}，可视作 ${faceLevel} 个同属性面。` : element.description}</div>`;
     button.addEventListener("click", () => toggleDie(die.id));
     dom.diceGrid.append(button);
   });
@@ -1735,7 +2019,7 @@ function returnToMap() {
   setView("map");
 }
 
-MAP_PAGES[0].hint = "点击 1-1 进入首战，随后依次解锁 1-2 宝箱、1-3 迅猛狼群、1-4 商店，以及后续的 1-5 节点。";
+MAP_PAGES[0].hint = "点击 1-1 进入首战，随后依次解锁后续关卡。在奖励关中强化战力，迎战更难的章节。";
 
 function spendGold(amount) {
   if (state.gold < amount) return false;
@@ -1753,11 +2037,16 @@ function shuffleArray(values) {
 }
 
 function createStartingDicePool() {
+  ensureDieBlueprints();
   const dice = Array.from({ length: DICE_COUNT }, (_, index) => createDie(index));
   if (!state.shopRelics.has("starlight_eye")) return dice;
   const boosted = randomElement();
   const faces = shuffleArray([boosted, boosted, boosted, randomElement(), randomElement()]);
-  return faces.map((face, index) => ({ id: `die-${index + 1}`, face }));
+  return faces.map((face, index) => {
+    const die = createDie(index);
+    die.face = face;
+    return die;
+  });
 }
 
 function ensureShopStock() {
@@ -2118,6 +2407,7 @@ function setView(view) {
   dom.mapView.classList.toggle("hidden-view", view !== "map");
   dom.eventView.classList.toggle("hidden-view", view !== "event");
   dom.shopView.classList.toggle("hidden-view", view !== "shop");
+  dom.libraryView.classList.toggle("hidden-view", view !== "library");
   dom.battleView.classList.toggle("hidden-view", view !== "battle");
   dom.mapButton.classList.toggle("hidden-control", view === "map");
   updateHeroForView();
@@ -2228,6 +2518,8 @@ function resetRun() {
   state.relics = new Set();
   state.shopRelics = new Set();
   state.learnedMediumSkills = new Set();
+  state.runBonusMaxHp = 0;
+  state.diceBlueprints = Array.from({ length: DICE_COUNT }, (_, index) => createDieBlueprint(index));
   state.mapPage = 0;
   setBattleConfig(NODE_KEYS.forest_1_1);
   resetBattleState();
@@ -2817,6 +3109,7 @@ function checkBattleEnd(forceTurnCheck = false) {
 
 function resetBattleState() {
   clearBossTimer();
+  ensureDieBlueprints();
   state.playerMaxHp = currentPlayerMaxHp();
   state.playerHp = state.playerMaxHp;
   state.bossMaxHp = state.currentBattleConfig?.bossMaxHp ?? MAX_BOSS_HP;
@@ -2845,6 +3138,7 @@ function resetBattleState() {
   state.darkHunterReviveAvailable = state.currentBattleKey === NODE_KEYS.forest_1_5;
   state.nextBossAction = chooseBossAction();
   state.dice = createStartingDicePool();
+  syncDieBlueprintsFromDice(state.dice);
   dom.battleLog.innerHTML = "";
   dom.overlay.classList.add("hidden");
   dom.pauseOverlay.classList.add("hidden");
@@ -2855,6 +3149,269 @@ function resetBattleState() {
   addLog("boss", `${bossDisplayName()} 露出了下一步意图：<strong>${state.nextBossAction.label}</strong>。`);
   renderDice();
   syncBattleUi();
+}
+
+function currentNodeDefinitions() {
+  return {
+    [NODE_KEYS.forest_1_1]: {
+      label: "1-1<br>石像守卫",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? "completed" : "active",
+      onClick: startFirstLevel,
+      onCompletedClick: () => showToast("已通关"),
+    },
+    [NODE_KEYS.forest_1_2]: {
+      label: hasCompleted(NODE_KEYS.forest_1_2) ? "1-2<br>已开启" : "1-2<br>宝箱",
+      icon: "chest",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? (hasCompleted(NODE_KEYS.forest_1_2) ? "completed" : "active") : "locked",
+      onClick: openTreasureEvent,
+      onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
+    },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通关" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: () => showToast("已通关"),
+    },
+    [NODE_KEYS.forest_1_4]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-4<br>已到访" : "1-4<br>商店",
+      icon: "shop",
+      state: hasCompleted(NODE_KEYS.forest_1_3) ? (hasCompleted(NODE_KEYS.forest_1_4) ? "completed" : "active") : "locked",
+      onClick: openShop,
+      onCompletedClick: openShop,
+    },
+    [NODE_KEYS.forest_1_5]: {
+      label: hasCompleted(NODE_KEYS.forest_1_5) ? "1-5<br>已通关" : "1-5<br>暗夜猎人",
+      icon: "gate",
+      state: hasCompleted(NODE_KEYS.forest_1_4) ? (hasCompleted(NODE_KEYS.forest_1_5) ? "completed" : "active") : "locked",
+      onClick: startFifthLevel,
+      onCompletedClick: () => showToast("已通关"),
+    },
+    [NODE_KEYS.forest_1_6]: {
+      label: hasCompleted(NODE_KEYS.forest_1_6) ? "1-6<br>已领取" : "1-6<br>大图书馆",
+      icon: "library",
+      state: hasCompleted(NODE_KEYS.forest_1_5) ? (hasCompleted(NODE_KEYS.forest_1_6) ? "completed" : "active") : "locked",
+      onClick: openGreatLibrary,
+      onCompletedClick: () => showToast("大图书馆的馈赠已经领取。"),
+    },
+  };
+}
+
+function updateHeroForView() {
+  if (state.currentView === "map") {
+    const page = MAP_PAGES[state.mapPage];
+    dom.heroEyebrow.textContent = `世界地图 / 第 ${state.mapPage + 1} 页`;
+    dom.heroTitle.textContent = `元素骰境：${page.name}`;
+    dom.heroSubtitle.textContent = page.subtitle;
+    return;
+  }
+  if (state.currentView === "event") {
+    dom.heroEyebrow.textContent = "地点事件 / 宝箱";
+    dom.heroTitle.textContent = "迷雾森林：林间宝箱";
+    dom.heroSubtitle.textContent = "从 3 种随机奖励中选择 1 种带走，奖励会永久保留到后续流程。";
+    return;
+  }
+  if (state.currentView === "shop") {
+    dom.heroEyebrow.textContent = "地点事件 / 商店";
+    dom.heroTitle.textContent = "迷雾森林：星辉行馆";
+    dom.heroSubtitle.textContent = "在华丽的商店中购买药丸、技能卡与商店圣物，为后续战斗做好准备。";
+    return;
+  }
+  if (state.currentView === "library") {
+    dom.heroEyebrow.textContent = "奖励关 / 大图书馆";
+    dom.heroTitle.textContent = "迷雾森林：大图书馆";
+    dom.heroSubtitle.textContent = "在篝火、古籍与秘火铸炉之间作出一次永久选择，只能领取其中一项馈赠。";
+    return;
+  }
+  const battle = state.currentBattleConfig || BATTLE_CONFIGS[NODE_KEYS.forest_1_1];
+  dom.heroEyebrow.textContent = battle.heroEyebrow;
+  dom.heroTitle.textContent = battle.heroTitle;
+  dom.heroSubtitle.textContent = battle.heroSubtitle;
+}
+
+function renderMap(animate = false) {
+  const page = MAP_PAGES[state.mapPage];
+  setThemeClass(dom.mapCard, page.id);
+  setThemeClass(dom.mapScene, page.id);
+  if (animate) {
+    dom.mapScene.classList.remove("map-flip");
+    void dom.mapScene.offsetWidth;
+    dom.mapScene.classList.add("map-flip");
+  }
+  dom.mapRegionTitle.textContent = page.name;
+  dom.mapRegionText.textContent = page.subtitle;
+  dom.mapPageTitle.textContent = page.name;
+  dom.mapPageMeta.textContent = `第 ${state.mapPage + 1} 页 / 共 ${MAP_PAGES.length} 页`;
+  dom.mapHint.textContent = page.id === "forest" && hasCompleted(NODE_KEYS.forest_1_5) && !hasCompleted(NODE_KEYS.forest_1_6)
+    ? "1-6 大图书馆已经开放。进入后可从三项永久奖励中选择其一。"
+    : page.hint;
+  dom.mapPrevButton.disabled = state.mapPage === 0;
+  dom.mapNextButton.disabled = state.mapPage === MAP_PAGES.length - 1;
+  dom.mapChapterRow.innerHTML = "";
+  MAP_PAGES.forEach((mapPage, index) => {
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = `map-chapter-pill${index === state.mapPage ? " active" : ""}`;
+    pill.innerHTML = `<span>第 ${index + 1} 页</span><strong>${mapPage.name}</strong>`;
+    pill.addEventListener("click", () => {
+      state.mapPage = index;
+      renderMap(true);
+      updateHeroForView();
+    });
+    dom.mapChapterRow.append(pill);
+  });
+  dom.mapPathSvg.innerHTML = `<path d="${page.points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")}"></path>`;
+  dom.mapNodes.innerHTML = "";
+  const nodeDefs = currentNodeDefinitions();
+  page.points.forEach((point, index) => {
+    const node = document.createElement("div");
+    const button = document.createElement("button");
+    const label = document.createElement("div");
+    const nodeKey = state.mapPage === 0 && index === 0
+      ? NODE_KEYS.forest_1_1
+      : state.mapPage === 0 && index === 1
+        ? NODE_KEYS.forest_1_2
+        : state.mapPage === 0 && index === 2
+          ? NODE_KEYS.forest_1_3
+          : state.mapPage === 0 && index === 3
+            ? NODE_KEYS.forest_1_4
+            : state.mapPage === 0 && index === 4
+              ? NODE_KEYS.forest_1_5
+              : state.mapPage === 0 && index === 5
+                ? NODE_KEYS.forest_1_6
+                : null;
+    const def = nodeKey ? nodeDefs[nodeKey] : null;
+    node.className = `map-node ${def?.state || "locked"}`;
+    node.style.left = `${point.x}%`;
+    node.style.top = `${point.y}%`;
+    button.type = "button";
+    button.className = "map-node-button";
+    button.innerHTML = def?.icon === "golem"
+      ? `<div class="map-node-icon-golem"><div class="map-node-arms"></div></div>`
+      : def?.icon === "chest"
+        ? `<div class="map-node-icon-chest"></div>`
+        : def?.icon === "shop"
+          ? `<div class="map-node-icon-shop"></div>`
+          : def?.icon === "gate"
+            ? `<div class="map-node-icon-gate"></div>`
+            : def?.icon === "library"
+              ? `<div class="map-node-icon-library"><span></span></div>`
+              : "?";
+    if (!def) {
+      button.addEventListener("click", () => showToast("该地点尚未开放。"));
+    } else if (def.state === "completed" && def.onCompletedClick) {
+      button.addEventListener("click", def.onCompletedClick);
+    } else if (def.state !== "locked") {
+      button.addEventListener("click", def.onClick);
+    } else {
+      button.addEventListener("click", () => showToast("先完成前置节点。"));
+    }
+    label.className = "map-node-label";
+    label.innerHTML = def?.label || "后续开放";
+    node.append(button, label);
+    dom.mapNodes.append(node);
+  });
+}
+
+function checkBattleEnd(forceTurnCheck = false) {
+  if (state.currentBattleKey === NODE_KEYS.forest_1_5 && state.bossHp <= 0 && state.darkHunterReviveAvailable) {
+    state.darkHunterReviveAvailable = false;
+    state.darkHunterRevived = true;
+    state.darkHunterStealthed = false;
+    state.darkHunterWindup = false;
+    state.bossHp = 100;
+    addLog("boss", "暗夜猎人触发了 <strong>暗夜苏生</strong>，倒下后再度起身，并恢复了 <strong>100</strong> 点生命。");
+    showToast("暗夜猎人发动了暗夜苏生。");
+    showBattleFloat(".boss-card", "+100", "heal");
+    syncBattleUi();
+    return false;
+  }
+  if (state.bossHp <= 0) {
+    if (maybeAdvanceBossWave()) return false;
+    state.gameOver = true;
+    state.phase = "end";
+    const nodeKey = state.currentBattleKey || NODE_KEYS.forest_1_1;
+    const firstClear = !hasCompleted(nodeKey);
+    let relic = null;
+    if (firstClear) {
+      completeNode(nodeKey);
+      addGold(state.currentBattleConfig?.rewardGold || 0);
+      if (state.currentBattleConfig?.rewardType === "treasure") {
+        state.overlayAction = "treasure";
+      } else if (state.currentBattleConfig?.rewardType === "wolf_relic") {
+        relic = grantRandomWolfRelic();
+        state.overlayAction = state.currentBattleKey === NODE_KEYS.forest_1_3 ? "shop" : "map";
+      } else if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+        state.overlayAction = "library";
+      } else {
+        state.overlayAction = "map";
+      }
+    } else {
+      state.overlayAction = "map";
+    }
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战成功";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5
+      ? "暗夜猎人已被终结"
+      : state.currentBattleKey === NODE_KEYS.forest_1_3
+        ? "迅猛狼群已被击退"
+        : "石像守卫已被击碎";
+    if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+      dom.overlayText.textContent = firstClear
+        ? "你闯过了 1-5，迷雾深处的大图书馆已经向你开放。下一步可以领取一次永久奖励。"
+        : "你再次击败了暗夜猎人，可以返回地图继续规划后续章节。";
+      dom.overlayButton.textContent = firstClear ? "进入大图书馆" : "返回地图";
+    } else if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+      dom.overlayText.textContent = firstClear
+        ? `你连续击败了三只迅猛狼，获得 ${THIRD_LEVEL_CLEAR_GOLD} 枚金币，并得到了圣物“${relic?.name || "未知圣物"}”。效果：${relicEffectText(relic)}`
+        : "你再次击退了迅猛狼群，可以返回地图继续前进。";
+      dom.overlayButton.textContent = firstClear ? "进入商店" : "返回地图";
+    } else {
+      dom.overlayText.textContent = firstClear
+        ? `你完成了首关挑战，并获得 ${FIRST_LEVEL_CLEAR_GOLD} 枚金币。接下来将进入第 2 个地点的宝箱事件。`
+        : "你再次击败了石像守卫，可以返回地图继续查看路线。";
+      dom.overlayButton.textContent = firstClear ? "进入第 2 地点" : "返回地图";
+    }
+    dom.overlay.classList.remove("hidden");
+    addLog("system", `战斗结束。你成功击败了 ${state.currentBattleConfig?.bossName || "Boss"}。`);
+    playSound("win");
+    renderMap();
+    return true;
+  }
+  if (state.playerHp <= 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5 ? "你被暗夜猎人猎杀" : state.currentBattleKey === NODE_KEYS.forest_1_3 ? "你被狼群撕碎了防线" : "你被石像守卫击倒";
+    dom.overlayText.textContent = "生命归零，遗迹深处再次归于沉寂。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "战斗结束。你的生命值耗尽，挑战失败。");
+    playSound("lose");
+    return true;
+  }
+  if (forceTurnCheck && state.playsLeft <= 0 && state.bossHp > 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = state.currentBattleKey && state.currentBattleKey !== NODE_KEYS.forest_1_1 ? "run_reset" : "reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5 ? "出骰机会已尽" : state.currentBattleKey === NODE_KEYS.forest_1_3 ? "出骰机会已尽" : "六回合已尽";
+    dom.overlayText.textContent = state.currentBattleKey === NODE_KEYS.forest_1_5
+      ? "八次出骰机会已经耗尽，暗夜猎人仍潜伏在夜色中，第五关挑战失败。"
+      : state.currentBattleKey === NODE_KEYS.forest_1_3
+        ? "十次出骰机会已经耗尽，狼群仍未被清空，第三关挑战失败。"
+        : "石像守卫依然屹立，第一关挑战失败。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "出骰回合耗尽后 Boss 仍然存活，本次挑战失败。");
+    playSound("lose");
+    return true;
+  }
+  return false;
 }
 
 dom.rerollButton.addEventListener("click", rerollSelectedDice);
@@ -2884,6 +3441,7 @@ dom.restartButton.addEventListener("click", resetRun);
 dom.eventBackButton.addEventListener("click", returnToMap);
 dom.shopBackButton.addEventListener("click", returnToMap);
 dom.shopLeaveButton.addEventListener("click", leaveShop);
+dom.libraryBackButton.addEventListener("click", returnToMap);
 dom.overlayButton.addEventListener("click", () => {
   dom.overlay.classList.add("hidden");
   if (state.overlayAction === "map") {
@@ -2902,16 +3460,810 @@ dom.overlayButton.addEventListener("click", () => {
     openShop();
     return;
   }
+  if (state.overlayAction === "library") {
+    openGreatLibrary();
+    return;
+  }
   resetBattleState();
   setView("battle");
 });
 dom.audioButton.addEventListener("click", toggleAudio);
 window.addEventListener("pointerdown", ensureAudio, { once: true });
 
+function renderGlobalHelpSummary() {
+  const helpBlocks = document.querySelectorAll(".help-block");
+  const content = [
+    {
+      title: "基础规则",
+      text: "每次打出或重掷后，只有被选中的骰子会刷新，未选中的骰子会留在场上，方便你逐步凑组合。",
+    },
+    {
+      title: "读懂预告",
+      text: "先看 Boss 预告再决定保命还是抢输出。高伤回合优先金属、护盾、冻结或道具，安全回合再追求爆发。",
+    },
+    {
+      title: "成长资源",
+      text: "宝箱、商店、圣物和大图书馆都会永久强化这一轮旅程。药丸解决短线压力，技能和骰子强化决定后期上限。",
+    },
+    {
+      title: "构筑方向",
+      text: "火水偏爆发，木偏续航，土金偏防守，以太负责终结；强化后的骰面能当作多个同属性面使用。",
+    },
+  ];
+  helpBlocks.forEach((block, index) => {
+    const data = content[index];
+    if (!block || !data) return;
+    const title = block.querySelector("h4");
+    const text = block.querySelector("p");
+    if (title) title.textContent = data.title;
+    if (text) text.textContent = data.text;
+  });
+}
+
+function renderBossRules() {
+  const bossRules = document.querySelectorAll(".boss-rules-card li");
+  if (!bossRules.length) return;
+
+  const rules = state.currentBattleKey === NODE_KEYS.forest_1_5
+    ? [
+      "<strong>暗影箭</strong>：造成 35 伤害，属于稳定远程压制。",
+      "<strong>隐匿刺杀</strong>：先进入隐身，再在下一次 Boss 回合发动 80 伤害刺杀。",
+      "<strong>暗夜苏生</strong>：首次被击倒后会复活一次，并恢复 100 生命。",
+      "<strong>胜负关键</strong>：8 次出骰内完成击杀，预告到刺杀时务必提前准备防御。",
+    ]
+    : state.currentBattleKey === NODE_KEYS.forest_1_3
+      ? [
+        "<strong>狼群轮战</strong>：共 3 只狼，每只 80 生命，必须全部击败才算胜利。",
+        "<strong>利爪撕咬</strong>：基础造成 30 伤害，节奏稳定但持续施压。",
+        "<strong>野性嚎叫</strong>：回复 20 生命，并让下一次攻击伤害提高 50%。",
+        "<strong>胜负关键</strong>：10 次出骰内清空整组狼群，避免在强化后的撕咬回合硬吃伤害。",
+      ]
+      : [
+        "<strong>普通攻击</strong>：基础造成 20 伤害，是最常见的行动。",
+        "<strong>蓄力重击</strong>：造成 50 伤害，看到预告时优先准备金属或护盾。",
+        "<strong>生命回复</strong>：回复 30 生命，通常是你抢节奏的输出窗口。",
+        "<strong>胜负关键</strong>：6 次出骰内击败石像守卫，否则本关失败。",
+      ];
+
+  bossRules.forEach((rule, index) => {
+    if (rules[index]) rule.innerHTML = rules[index];
+  });
+}
+
+function currentNodeDefinitions() {
+  return {
+    [NODE_KEYS.forest_1_1]: {
+      label: hasCompleted(NODE_KEYS.forest_1_1) ? "1-1<br>已通关" : "1-1<br>石像守卫",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? "completed" : "active",
+      onClick: startFirstLevel,
+      onCompletedClick: startFirstLevel,
+    },
+    [NODE_KEYS.forest_1_2]: {
+      label: hasCompleted(NODE_KEYS.forest_1_2) ? "1-2<br>已开启" : "1-2<br>宝箱",
+      icon: "chest",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? (hasCompleted(NODE_KEYS.forest_1_2) ? "completed" : "active") : "locked",
+      onClick: openTreasureEvent,
+      onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
+    },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通关" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: startThirdLevel,
+    },
+    [NODE_KEYS.forest_1_4]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-4<br>已到访" : "1-4<br>商店",
+      icon: "shop",
+      state: hasCompleted(NODE_KEYS.forest_1_3) ? (hasCompleted(NODE_KEYS.forest_1_4) ? "completed" : "active") : "locked",
+      onClick: openShop,
+      onCompletedClick: openShop,
+    },
+    [NODE_KEYS.forest_1_5]: {
+      label: hasCompleted(NODE_KEYS.forest_1_5) ? "1-5<br>已通关" : "1-5<br>暗夜猎人",
+      icon: "gate",
+      state: hasCompleted(NODE_KEYS.forest_1_4) ? (hasCompleted(NODE_KEYS.forest_1_5) ? "completed" : "active") : "locked",
+      onClick: startFifthLevel,
+      onCompletedClick: startFifthLevel,
+    },
+    [NODE_KEYS.forest_1_6]: {
+      label: hasCompleted(NODE_KEYS.forest_1_6) ? "1-6<br>已到访" : "1-6<br>大图书馆",
+      icon: "library",
+      state: hasCompleted(NODE_KEYS.forest_1_5) ? (hasCompleted(NODE_KEYS.forest_1_6) ? "completed" : "active") : "locked",
+      onClick: openGreatLibrary,
+      onCompletedClick: openGreatLibrary,
+    },
+  };
+}
+
 applyStaticCopy();
+renderGlobalHelpSummary();
 setBattleConfig(NODE_KEYS.forest_1_1);
 renderMap();
 renderItemBar();
 renderRelicBar();
 renderSkillsPanel();
 setView("map");
+
+if (window.ElementBoomArch && typeof window.ElementBoomArch.setRuntimeBridge === "function") {
+  window.ElementBoomArch.setRuntimeBridge({
+    getContent() {
+      return {
+        ELEMENTS,
+        ELEMENT_ORDER,
+        MAP_PAGES,
+        NODE_KEYS,
+        ITEM_DEFS,
+        RELIC_DEFS,
+        SHOP_RELIC_DEFS,
+        BATTLE_CONFIGS,
+        MEDIUM_SKILLS,
+      };
+    },
+    getConstants() {
+      return {
+        BASE_PLAYER_HP,
+        MAX_BOSS_HP,
+        MAX_TURNS,
+        DICE_COUNT,
+        TOTAL_REROLLS,
+        FIRST_LEVEL_CLEAR_GOLD,
+        THIRD_LEVEL_CLEAR_GOLD,
+        COIN_BAG_GOLD,
+        TREASURE_DRAW_COUNT,
+        SHOP_ITEM_PRICE,
+        SHOP_SKILL_CARD_PRICE,
+        SHOP_RELIC_PRICE,
+      };
+    },
+    getState() {
+      return state;
+    },
+    getDom() {
+      return dom;
+    },
+    getActions() {
+      return {
+        setBattleConfig,
+        renderMap,
+        renderShop,
+        openTreasureEvent,
+        openShop,
+        startFirstLevel,
+        startThirdLevel,
+        startFifthLevel,
+        upgradeDieFace,
+        getDieFaceLevel,
+        resetRun,
+        returnToMap,
+      };
+    },
+  });
+}
+
+NODE_KEYS.forest_1_7 = "forest_1_7";
+state.playerPoisoned = false;
+state.playerPoisonedNextTurn = false;
+
+RELIC_DEFS.python_bracelet = {
+  id: "python_bracelet",
+  name: "巨蟒手链",
+  short: "出骰 +1",
+  icon: `
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id="pythonBraceletBody" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#f4ffcf" />
+          <stop offset="42%" stop-color="#84db76" />
+          <stop offset="100%" stop-color="#256a3f" />
+        </linearGradient>
+      </defs>
+      <path d="M20 18c8-8 22-8 30 0c8 8 8 22 0 30c-8 8-22 8-30 0c-8-8-8-22 0-30Z" fill="none" stroke="url(#pythonBraceletBody)" stroke-width="7" stroke-linecap="round"/>
+      <path d="M39 14c6 1 11 6 11 12c0 5-3 10-8 12" fill="none" stroke="#f3ffc9" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="43" cy="17" r="2.3" fill="#163724" />
+      <circle cx="48" cy="19" r="2.3" fill="#163724" />
+    </svg>
+  `,
+  description: "永久生效。玩家在各战斗关卡中的基础出骰次数永久 +1，可与其他加行动效果叠加。",
+};
+
+BATTLE_CONFIGS[NODE_KEYS.forest_1_7] = {
+  nodeKey: NODE_KEYS.forest_1_7,
+  heroEyebrow: "第七关 / 绿斑巨蟒",
+  heroTitle: "元素骰境：绿斑巨蟒",
+  heroSubtitle: "在 6 次出骰与 6 次重掷内击败 300 生命的绿斑巨蟒。小心毒液压制与会把生命值直接压到 1 点的死亡之毒。",
+  bossName: "绿斑巨蟒",
+  bossMaxHp: 300,
+  plays: 6,
+  rerolls: 6,
+  rewardType: "python_relic",
+  rewardGold: 10,
+  introLog: "第七关开始。绿斑巨蟒盘踞在藤蔓与石阶之间，蛇瞳正缓慢锁定你的呼吸与节奏。",
+  chooseBossAction() {
+    const roll = Math.random() * 110;
+    if (roll < 60) return { id: "serpent_bite", label: "蛇咬", value: 30 };
+    if (roll < 90) return { id: "venom_spray", label: "毒液喷射", value: 20 };
+    return { id: "death_poison", label: "死亡之毒", value: 1 };
+  },
+};
+
+function grantPythonBracelet() {
+  state.relics.add("python_bracelet");
+  const relic = RELIC_DEFS.python_bracelet;
+  showToast(`获得圣物：${relic.name}`);
+  addLog("system", `你获得了圣物 <strong>${relic.name}</strong>：${relic.description}`);
+  return relic;
+}
+
+function startSeventhLevel() {
+  setBattleConfig(NODE_KEYS.forest_1_7);
+  resetBattleState();
+  setView("battle");
+  showToast("第七关开始。");
+  playSound("select");
+}
+
+const baseCurrentBasePlays = currentBasePlays;
+currentBasePlays = function () {
+  return baseCurrentBasePlays() + (state.relics.has("python_bracelet") ? 1 : 0);
+};
+
+const baseResetBattleState = resetBattleState;
+resetBattleState = function () {
+  state.playerPoisoned = false;
+  state.playerPoisonedNextTurn = false;
+  return baseResetBattleState();
+};
+
+const baseRenderBossPortrait = renderBossPortrait;
+renderBossPortrait = function () {
+  if (state.currentBattleKey !== NODE_KEYS.forest_1_7) {
+    baseRenderBossPortrait();
+    return;
+  }
+  if (!dom.bossPortrait) return;
+  dom.bossPortrait.classList.remove("wolf-pack", "dark-hunter", "stealthed");
+  dom.bossPortrait.innerHTML = `
+    <svg viewBox="0 0 220 220" aria-hidden="true">
+      <defs>
+        <linearGradient id="pythonBody" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#ecffd6" />
+          <stop offset="42%" stop-color="#8fe285" />
+          <stop offset="100%" stop-color="#215f39" />
+        </linearGradient>
+        <linearGradient id="pythonBelly" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#fbffe1" />
+          <stop offset="100%" stop-color="#cde7a3" />
+        </linearGradient>
+      </defs>
+      <ellipse cx="110" cy="192" rx="74" ry="13" fill="rgba(16, 54, 28, 0.18)" />
+      <path d="M72 176c-18-9-28-23-28-38c0-25 21-41 48-41c20 0 36 7 50 15c17 10 34 20 34 42c0 19-17 34-40 34c-20 0-28-10-40-18c-10-7-15-8-24-8Z" fill="url(#pythonBody)" />
+      <path d="M80 170c15-8 24-6 36 1c10 6 18 10 30 10c16 0 28-8 28-20c0-14-12-21-28-30c-16-9-31-16-51-16c-23 0-41 13-41 31c0 10 6 19 19 27c-1-3 1-5 7-3Z" fill="url(#pythonBelly)" opacity="0.94" />
+      <path d="M116 34c24 0 44 18 44 41c0 15-8 28-20 36c4 9 7 18 7 28c0 22-17 41-41 41c-22 0-39-15-39-37c0-16 10-29 24-38c-3-5-5-11-5-18c0-29 14-53 30-53Z" fill="url(#pythonBody)" />
+      <path d="M108 46c15 0 27 14 27 30c0 11-5 21-13 27c5 8 8 16 8 25c0 18-11 31-25 31c-14 0-24-10-24-24c0-13 8-23 18-31c-4-6-7-14-7-22c0-20 7-36 16-36Z" fill="url(#pythonBelly)" opacity="0.95" />
+      <path d="M121 44c31 0 55 19 55 42c0 13-8 24-21 31l-3 2c8 5 14 12 14 21c0 18-22 32-49 32c-30 0-53-16-53-38c0-15 11-28 28-34c-4-6-7-14-7-23c0-18 15-33 36-33Z" fill="url(#pythonBody)" />
+      <path d="M144 54c19 0 35 12 35 27c0 9-5 17-14 22c9 4 15 12 15 21c0 16-19 29-43 29c-26 0-45-13-45-31c0-13 10-23 25-28c-6-5-10-12-10-19c0-12 10-21 23-21Z" fill="rgba(19, 72, 42, 0.16)" />
+      <path d="M152 60c18 0 32 12 32 28c0 16-14 28-32 28h-22c-17 0-31-12-31-28c0-16 14-28 31-28Z" fill="url(#pythonBody)" />
+      <ellipse cx="136" cy="88" rx="6" ry="8" fill="#123422" />
+      <ellipse cx="164" cy="88" rx="6" ry="8" fill="#123422" />
+      <circle cx="136" cy="86" r="2.2" fill="#f8ffe4" />
+      <circle cx="164" cy="86" r="2.2" fill="#f8ffe4" />
+      <path d="M139 104c6 4 15 4 22 0" fill="none" stroke="#174228" stroke-width="4" stroke-linecap="round" />
+      <path d="M150 104v19" fill="none" stroke="#ef6582" stroke-width="4" stroke-linecap="round" />
+      <path d="M150 121l-7 11" fill="none" stroke="#ef6582" stroke-width="3" stroke-linecap="round" />
+      <path d="M150 121l7 11" fill="none" stroke="#ef6582" stroke-width="3" stroke-linecap="round" />
+      <g fill="#e4ffb4" opacity="0.9">
+        <circle cx="118" cy="72" r="4" />
+        <circle cx="126" cy="104" r="4" />
+        <circle cx="154" cy="64" r="4" />
+        <circle cx="165" cy="108" r="4" />
+        <circle cx="91" cy="132" r="4" />
+        <circle cx="110" cy="144" r="4" />
+      </g>
+    </svg>
+    <span>${bossDisplayName()}</span>
+  `;
+};
+
+const baseBossActionMeta = bossActionMeta;
+bossActionMeta = function (action) {
+  if (!action) return baseBossActionMeta(action);
+  if (action.id === "serpent_bite") {
+    return { icon: "牙", title: action.label, text: "预计造成 30 点伤害，是最稳定也最常见的压制动作。", badge: "咬击", preview: "即将蛇咬" };
+  }
+  if (action.id === "venom_spray") {
+    return { icon: "毒", title: action.label, text: "预计造成 20 点伤害，并让你下回合进入中毒状态：该回合无法重掷。", badge: "中毒", preview: "即将喷毒" };
+  }
+  if (action.id === "death_poison") {
+    return { icon: "死", title: action.label, text: "预计将你的生命值直接压到 1 点。这不是普通伤害，重点是准备后续保命。", badge: "致命", preview: "即将死亡之毒" };
+  }
+  return baseBossActionMeta(action);
+};
+
+const baseGetGuideTip = getGuideTip;
+getGuideTip = function () {
+  if (state.currentBattleKey !== NODE_KEYS.forest_1_7) return baseGetGuideTip();
+  const action = state.nextBossAction;
+  if (state.playerPoisoned) {
+    return {
+      title: "中毒回合无法重掷",
+      text: "先看手上现有骰面再决定防守还是抢输出，这一回合必须直接用当前牌面完成行动。",
+    };
+  }
+  if (!action) {
+    return {
+      title: "先读懂巨蟒的下一招",
+      text: "绿斑巨蟒的压制不在纯伤害，而在节奏控制。提前看预告能决定你该抢输出还是准备保命。",
+    };
+  }
+  if (action.id === "death_poison") {
+    return {
+      title: "准备承受濒死压制",
+      text: "死亡之毒会把生命压到 1 点。优先布置金属化、护盾或回复资源，确保被压低血线后还能扛住下一击。",
+    };
+  }
+  if (action.id === "venom_spray") {
+    return {
+      title: "下一回合可能失去重掷",
+      text: "毒液喷射的真正威胁是封锁你下一回合的找牌能力。本回合尽量留下更顺手的骰面，减少后手压力。",
+    };
+  }
+  return {
+    title: "稳血线再打爆发",
+    text: "蛇咬伤害稳定，适合用木系续航或火水爆发换血，但别把自己压到一个死亡之毒后无法续命的区间。",
+  };
+};
+
+const baseSyncBattleUi = syncBattleUi;
+syncBattleUi = function () {
+  baseSyncBattleUi();
+
+  const bossBuffNames = document.querySelectorAll(".boss-card .buff-name");
+  if (bossBuffNames[0]) {
+    bossBuffNames[0].textContent = state.currentBattleKey === NODE_KEYS.forest_1_7
+      ? "毒/冻状态"
+      : state.currentBattleKey === NODE_KEYS.forest_1_5
+        ? "冻结/隐匿"
+        : "冻结效果";
+  }
+
+  if (state.currentBattleKey === NODE_KEYS.forest_1_7) {
+    const statusBits = [];
+    if (state.bossFrozen) statusBits.push("Boss已冻结");
+    if (state.playerPoisoned) statusBits.push("你已中毒");
+    else if (state.playerPoisonedNextTurn) statusBits.push("下回合中毒");
+    dom.freezeState.textContent = statusBits.length ? statusBits.join(" / ") : "无";
+    dom.bossState.textContent = state.nextBossAction?.id === "death_poison"
+      ? "死亡之毒待发"
+      : state.nextBossAction?.id === "venom_spray"
+        ? "毒腺鼓动"
+        : state.playerPoisoned
+          ? "毒性压制"
+          : "蛇瞳锁定";
+  }
+
+  dom.rerollButton.textContent = state.playerPoisoned ? "中毒回合不可重掷" : "重掷所选骰子";
+  if (state.playerPoisoned) {
+    dom.rerollButton.disabled = true;
+  }
+
+  dom.forecastCard.classList.remove("venom", "doom");
+  if (state.currentBattleKey === NODE_KEYS.forest_1_7) {
+    if (state.nextBossAction?.id === "serpent_bite") dom.forecastCard.classList.add("attack");
+    if (state.nextBossAction?.id === "venom_spray") dom.forecastCard.classList.add("heal");
+    if (state.nextBossAction?.id === "death_poison") dom.forecastCard.classList.add("slam");
+  }
+
+  renderBossRules();
+};
+
+const baseRerollSelectedDice = rerollSelectedDice;
+rerollSelectedDice = function () {
+  if (state.phase === "player" && !state.gameOver && !state.paused && state.playerPoisoned) {
+    showToast("你正处于中毒状态，本回合无法重掷。");
+    return;
+  }
+  return baseRerollSelectedDice();
+};
+
+const baseResolvePlayerAction = resolvePlayerAction;
+resolvePlayerAction = function () {
+  const poisonWillBeConsumed = state.phase === "player"
+    && !state.gameOver
+    && !state.paused
+    && state.playsLeft > 0
+    && state.selectedDice.size > 0
+    && state.playerPoisoned;
+  const result = baseResolvePlayerAction();
+  if (poisonWillBeConsumed && state.phase !== "player") {
+    state.playerPoisoned = false;
+    if (!state.gameOver) syncBattleUi();
+  }
+  return result;
+};
+
+const baseFinishRound = finishRound;
+finishRound = function () {
+  const shouldApplyPoison = Boolean(state.playerPoisonedNextTurn);
+  baseFinishRound();
+  if (state.gameOver || state.phase !== "player") return;
+  state.playerPoisoned = shouldApplyPoison;
+  state.playerPoisonedNextTurn = false;
+  if (shouldApplyPoison) {
+    addLog("boss", "绿斑巨蟒的毒性在你体内扩散，本回合你无法重掷骰子。");
+    showToast("你陷入中毒，本回合无法重掷。");
+    renderDice();
+    syncBattleUi();
+  }
+};
+
+const baseResolveBossTurn = resolveBossTurn;
+resolveBossTurn = function () {
+  if (state.currentBattleKey !== NODE_KEYS.forest_1_7) {
+    return baseResolveBossTurn();
+  }
+  if (state.gameOver || state.paused) return;
+  const action = state.nextBossAction || chooseBossAction();
+  dom.bossIntent.textContent = "行动中";
+
+  if (state.bossFrozen) {
+    state.bossFrozen = false;
+    state.bossPatternIndex += 1;
+    addLog("boss", "绿斑巨蟒被寒潮冻结，本回合无法行动。");
+    showToast("Boss 行动被跳过。");
+    playSound("freeze");
+    consumeShieldTurn();
+    finishRound();
+    return;
+  }
+
+  if (action.id === "venom_spray") {
+    const dealt = damagePlayer(action.value);
+    state.playerPoisonedNextTurn = true;
+    addLog("boss", `绿斑巨蟒发动 <strong>毒液喷射</strong>，造成 <strong>${dealt}</strong> 点伤害，并让你下回合进入中毒状态。`);
+    showToast("毒液命中，下回合你将无法重掷。");
+    showBattleFloat(".player-card", dealt === 0 ? "中毒" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
+    applyTransientClass(".player-card", "impact", 500);
+    playSound("bossAttack");
+  } else if (action.id === "death_poison") {
+    const loss = Math.max(0, state.playerHp - 1);
+    state.playerHp = Math.min(state.playerHp, 1);
+    addLog("boss", `绿斑巨蟒发动 <strong>死亡之毒</strong>，将你的生命值压到了 <strong>1</strong> 点。`);
+    showToast("死亡之毒爆发，你被压到 1 点生命。");
+    showBattleFloat(".player-card", loss > 0 ? `-${loss}` : "濒死", "damage");
+    applyTransientClass(".player-card", "impact", 560);
+    playSound("bossSlam");
+  } else {
+    const dealt = damagePlayer(action.value);
+    addLog("boss", `绿斑巨蟒发动 <strong>蛇咬</strong>，实际造成 <strong>${dealt}</strong> 点伤害。`);
+    showToast("蛇咬命中。");
+    showBattleFloat(".player-card", dealt === 0 ? "免疫" : `-${dealt}`, dealt === 0 ? "immune" : "damage");
+    applyTransientClass(".player-card", "impact", 500);
+    playSound("bossAttack");
+  }
+
+  state.bossPatternIndex += 1;
+  consumeShieldTurn();
+  syncBattleUi();
+  if (checkBattleEnd()) return;
+  finishRound();
+};
+
+renderBossRules = function () {
+  const bossRules = document.querySelectorAll(".boss-rules-card li");
+  if (!bossRules.length) return;
+
+  let rules = [
+    "<strong>普通攻击</strong>：造成 20 点伤害，是最常见的行动。",
+    "<strong>蓄力重击</strong>：造成 50 点伤害，看见预告时优先准备金属化或护盾。",
+    "<strong>生命恢复</strong>：回复 30 点生命，通常是你抢节奏的输出窗口。",
+    "<strong>胜负关键</strong>：6 次出骰内击败石像守卫，否则本关失败。",
+  ];
+
+  if (state.currentBattleKey === NODE_KEYS.forest_1_3) {
+    rules = [
+      "<strong>狼群轮战</strong>：共 3 只狼，每只 80 生命，必须全部击败才算胜利。",
+      "<strong>利爪撕咬</strong>：稳定造成 30 点伤害，会持续给你血线压力。",
+      "<strong>野性嚎叫</strong>：回复 20 点生命，并让下一次攻击伤害提高 50%。",
+      "<strong>胜负关键</strong>：10 次出骰内清空整组狼群，别让强化后的撕咬轮次滚起来。",
+    ];
+  } else if (state.currentBattleKey === NODE_KEYS.forest_1_5) {
+    rules = [
+      "<strong>暗影箭</strong>：造成 35 点伤害，属于稳定的远程压制。",
+      "<strong>隐匿刺杀</strong>：先进入隐身，再在下个 Boss 回合发动 80 伤害刺杀。",
+      "<strong>暗夜苏生</strong>：首次被击倒后会复活一次，并恢复 100 点生命。",
+      "<strong>胜负关键</strong>：8 次出骰内完成击杀，看到刺杀预告时务必提前准备防御。",
+    ];
+  } else if (state.currentBattleKey === NODE_KEYS.forest_1_7) {
+    rules = [
+      "<strong>蛇咬</strong>：常规动作，造成 30 点伤害，频率最高。",
+      "<strong>毒液喷射</strong>：造成 20 点伤害，并让你下回合进入【中毒】：该回合无法重掷。",
+      "<strong>死亡之毒</strong>：会把你的生命值直接压到 1 点，核心在于提前准备后续保命。",
+      "<strong>胜负关键</strong>：6 次出骰与 6 次重掷内击败 300 生命的绿斑巨蟒，首通获得 10 金币与圣物【巨蟒手链】。",
+    ];
+  }
+
+  bossRules.forEach((rule, index) => {
+    if (rules[index]) bossRules[index].innerHTML = rules[index];
+  });
+};
+
+currentNodeDefinitions = function () {
+  return {
+    [NODE_KEYS.forest_1_1]: {
+      label: hasCompleted(NODE_KEYS.forest_1_1) ? "1-1<br>已通关" : "1-1<br>石像守卫",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? "completed" : "active",
+      onClick: startFirstLevel,
+      onCompletedClick: startFirstLevel,
+    },
+    [NODE_KEYS.forest_1_2]: {
+      label: hasCompleted(NODE_KEYS.forest_1_2) ? "1-2<br>已开启" : "1-2<br>宝箱",
+      icon: "chest",
+      state: hasCompleted(NODE_KEYS.forest_1_1) ? (hasCompleted(NODE_KEYS.forest_1_2) ? "completed" : "active") : "locked",
+      onClick: openTreasureEvent,
+      onCompletedClick: () => showToast("这个宝箱已经领取过了。"),
+    },
+    [NODE_KEYS.forest_1_3]: {
+      label: hasCompleted(NODE_KEYS.forest_1_3) ? "1-3<br>已通关" : "1-3<br>迅猛狼群",
+      icon: "golem",
+      state: hasCompleted(NODE_KEYS.forest_1_2) ? (hasCompleted(NODE_KEYS.forest_1_3) ? "completed" : "active") : "locked",
+      onClick: startThirdLevel,
+      onCompletedClick: startThirdLevel,
+    },
+    [NODE_KEYS.forest_1_4]: {
+      label: hasCompleted(NODE_KEYS.forest_1_4) ? "1-4<br>已到访" : "1-4<br>商店",
+      icon: "shop",
+      state: hasCompleted(NODE_KEYS.forest_1_3) ? (hasCompleted(NODE_KEYS.forest_1_4) ? "completed" : "active") : "locked",
+      onClick: openShop,
+      onCompletedClick: () => showToast("这个商店本轮只能进入一次。"),
+    },
+    [NODE_KEYS.forest_1_5]: {
+      label: hasCompleted(NODE_KEYS.forest_1_5) ? "1-5<br>已通关" : "1-5<br>暗夜猎人",
+      icon: "gate",
+      state: hasCompleted(NODE_KEYS.forest_1_4) ? (hasCompleted(NODE_KEYS.forest_1_5) ? "completed" : "active") : "locked",
+      onClick: startFifthLevel,
+      onCompletedClick: startFifthLevel,
+    },
+    [NODE_KEYS.forest_1_6]: {
+      label: hasCompleted(NODE_KEYS.forest_1_6) ? "1-6<br>已到访" : "1-6<br>大图书馆",
+      icon: "library",
+      state: hasCompleted(NODE_KEYS.forest_1_5) ? (hasCompleted(NODE_KEYS.forest_1_6) ? "completed" : "active") : "locked",
+      onClick: openGreatLibrary,
+      onCompletedClick: () => showToast("大图书馆本轮只能领取一次奖励。"),
+    },
+    [NODE_KEYS.forest_1_7]: {
+      label: hasCompleted(NODE_KEYS.forest_1_7) ? "1-7<br>已通关" : "1-7<br>绿斑巨蟒",
+      icon: "serpent",
+      state: hasCompleted(NODE_KEYS.forest_1_6) ? (hasCompleted(NODE_KEYS.forest_1_7) ? "completed" : "active") : "locked",
+      onClick: startSeventhLevel,
+      onCompletedClick: startSeventhLevel,
+    },
+  };
+};
+
+renderMap = function (animate = false) {
+  const page = MAP_PAGES[state.mapPage];
+  setThemeClass(dom.mapCard, page.id);
+  setThemeClass(dom.mapScene, page.id);
+  if (animate) {
+    dom.mapScene.classList.remove("map-flip");
+    void dom.mapScene.offsetWidth;
+    dom.mapScene.classList.add("map-flip");
+  }
+  dom.mapRegionTitle.textContent = page.name;
+  dom.mapRegionText.textContent = page.subtitle;
+  dom.mapPageTitle.textContent = page.name;
+  dom.mapPageMeta.textContent = `第 ${state.mapPage + 1} 页 / 共 ${MAP_PAGES.length} 页`;
+  dom.mapHint.textContent = page.id === "forest" && hasCompleted(NODE_KEYS.forest_1_6) && !hasCompleted(NODE_KEYS.forest_1_7)
+    ? "1-7 绿斑巨蟒已经开放。它会用中毒与濒死压制打乱你的节奏，别忘了带上已经成型的骰面与圣物。"
+    : page.id === "forest" && hasCompleted(NODE_KEYS.forest_1_5) && !hasCompleted(NODE_KEYS.forest_1_6)
+      ? "1-6 大图书馆已经开放。进入后可以从三项永久奖励中选其一。"
+      : page.hint;
+  dom.mapPrevButton.disabled = state.mapPage === 0;
+  dom.mapNextButton.disabled = state.mapPage === MAP_PAGES.length - 1;
+  dom.mapChapterRow.innerHTML = "";
+  MAP_PAGES.forEach((mapPage, index) => {
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = `map-chapter-pill${index === state.mapPage ? " active" : ""}`;
+    pill.innerHTML = `<span>第 ${index + 1} 页</span><strong>${mapPage.name}</strong>`;
+    pill.addEventListener("click", () => {
+      state.mapPage = index;
+      renderMap(true);
+      updateHeroForView();
+    });
+    dom.mapChapterRow.append(pill);
+  });
+  dom.mapPathSvg.innerHTML = `<path d="${page.points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")}"></path>`;
+  dom.mapNodes.innerHTML = "";
+  const nodeDefs = currentNodeDefinitions();
+  page.points.forEach((point, index) => {
+    const node = document.createElement("div");
+    const button = document.createElement("button");
+    const label = document.createElement("div");
+    const nodeKey = state.mapPage === 0 && index === 0
+      ? NODE_KEYS.forest_1_1
+      : state.mapPage === 0 && index === 1
+        ? NODE_KEYS.forest_1_2
+        : state.mapPage === 0 && index === 2
+          ? NODE_KEYS.forest_1_3
+          : state.mapPage === 0 && index === 3
+            ? NODE_KEYS.forest_1_4
+            : state.mapPage === 0 && index === 4
+              ? NODE_KEYS.forest_1_5
+              : state.mapPage === 0 && index === 5
+                ? NODE_KEYS.forest_1_6
+                : state.mapPage === 0 && index === 6
+                  ? NODE_KEYS.forest_1_7
+                  : null;
+    const def = nodeKey ? nodeDefs[nodeKey] : null;
+    node.className = `map-node ${def?.state || "locked"}`;
+    node.style.left = `${point.x}%`;
+    node.style.top = `${point.y}%`;
+    button.type = "button";
+    button.className = "map-node-button";
+    button.innerHTML = def?.icon === "golem"
+      ? `<div class="map-node-icon-golem"><div class="map-node-arms"></div></div>`
+      : def?.icon === "chest"
+        ? `<div class="map-node-icon-chest"></div>`
+        : def?.icon === "shop"
+          ? `<div class="map-node-icon-shop"></div>`
+          : def?.icon === "gate"
+            ? `<div class="map-node-icon-gate"></div>`
+            : def?.icon === "library"
+              ? `<div class="map-node-icon-library"><span></span></div>`
+              : def?.icon === "serpent"
+                ? `<div class="map-node-icon-serpent"></div>`
+                : "?";
+    if (!def) {
+      button.addEventListener("click", () => showToast("该地点尚未开放。"));
+    } else if (def.state === "completed" && def.onCompletedClick) {
+      button.addEventListener("click", def.onCompletedClick);
+    } else if (def.state !== "locked") {
+      button.addEventListener("click", def.onClick);
+    } else {
+      button.addEventListener("click", () => showToast("先完成前置节点。"));
+    }
+    label.className = "map-node-label";
+    label.innerHTML = def?.label || "后续开放";
+    node.append(button, label);
+    dom.mapNodes.append(node);
+  });
+};
+
+const baseCheckBattleEnd = checkBattleEnd;
+checkBattleEnd = function (forceTurnCheck = false) {
+  if (state.currentBattleKey !== NODE_KEYS.forest_1_7) {
+    return baseCheckBattleEnd(forceTurnCheck);
+  }
+
+  if (state.bossHp <= 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    const firstClear = !hasCompleted(NODE_KEYS.forest_1_7);
+    let relic = null;
+    if (firstClear) {
+      completeNode(NODE_KEYS.forest_1_7);
+      addGold(10);
+      relic = grantPythonBracelet();
+    }
+    state.overlayAction = "map";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战成功";
+    dom.overlayTitle.textContent = "绿斑巨蟒已被击退";
+    dom.overlayText.textContent = firstClear
+      ? `你击败了绿斑巨蟒，获得 10 金币与圣物“${relic?.name || "巨蟒手链"}”。效果：${relicEffectText(relic)}`
+      : "你再次击退了绿斑巨蟒，可以返回地图继续后续设计。";
+    dom.overlayButton.textContent = "返回地图";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "战斗结束。你成功击败了绿斑巨蟒。");
+    playSound("win");
+    renderMap();
+    return true;
+  }
+
+  if (state.playerHp <= 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = "run_reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = "你被绿斑巨蟒吞没";
+    dom.overlayText.textContent = "毒液与绞杀一起逼近，你倒在了蛇影盘踞的石阶前。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "战斗结束。你的生命值归零，挑战失败。");
+    playSound("lose");
+    return true;
+  }
+
+  if (forceTurnCheck && state.playsLeft <= 0 && state.bossHp > 0) {
+    state.gameOver = true;
+    state.phase = "end";
+    state.overlayAction = "run_reset";
+    syncBattleUi();
+    dom.overlayEyebrow.textContent = "挑战失败";
+    dom.overlayTitle.textContent = "出骰机会已耗尽";
+    dom.overlayText.textContent = "6 次出骰机会已经耗尽，绿斑巨蟒仍然盘踞不退，第七关挑战失败。";
+    dom.overlayButton.textContent = "再来一局";
+    dom.overlay.classList.remove("hidden");
+    addLog("system", "出骰回合耗尽后，绿斑巨蟒仍然存活，本次挑战失败。");
+    playSound("lose");
+    return true;
+  }
+
+  return false;
+};
+
+renderGlobalHelpSummary();
+renderMap();
+updateHeroForView();
+if (state.currentBattleKey) syncBattleUi();
+
+grantRandomWolfRelic = function () {
+  const wolfRelicIds = ["wolf_tooth", "wolf_skin", "wolf_eye"];
+  const pool = wolfRelicIds.filter((id) => !state.relics.has(id));
+  const fallback = wolfRelicIds;
+  const source = pool.length ? pool : fallback;
+  const chosenId = source[Math.floor(Math.random() * source.length)];
+  state.relics.add(chosenId);
+  showToast(`获得圣物：${RELIC_DEFS[chosenId].name}`);
+  addLog("system", `你获得了圣物 <strong>${RELIC_DEFS[chosenId].name}</strong>：${RELIC_DEFS[chosenId].description}`);
+  return RELIC_DEFS[chosenId];
+};
+
+RELIC_DEFS.python_bracelet.short = "首击伤害 +50%";
+RELIC_DEFS.python_bracelet.description = "永久生效。每关第一次出骰时，若这一手触发的是伤害类技能，则该次伤害提高 50%。若第一手不是伤害技能，则本关不会触发此效果。";
+
+currentBasePlays = function () {
+  return baseCurrentBasePlays();
+};
+
+const previousResetBattleState = resetBattleState;
+resetBattleState = function () {
+  const result = previousResetBattleState();
+  state.pythonBraceletReady = state.relics.has("python_bracelet");
+  state.pythonBraceletWindow = false;
+  state.pythonBraceletApplied = false;
+  return result;
+};
+
+const previousDamageBoss = damageBoss;
+damageBoss = function (amount) {
+  let finalAmount = amount;
+  if (state.pythonBraceletWindow && !state.pythonBraceletApplied && amount > 0) {
+    finalAmount = Math.round(amount * 1.5);
+    state.pythonBraceletApplied = true;
+    showToast("巨蟒手链触发，首次伤害技能提升 50%。");
+    addLog("system", `圣物 <strong>巨蟒手链</strong> 被激活，本次伤害提升至 <strong>${finalAmount}</strong>。`);
+  }
+  return previousDamageBoss(finalAmount);
+};
+
+const previousResolvePlayerAction = resolvePlayerAction;
+resolvePlayerAction = function () {
+  const shouldOpenBraceletWindow = state.phase === "player"
+    && !state.gameOver
+    && !state.paused
+    && state.selectedDice.size > 0
+    && state.playsLeft > 0
+    && state.pythonBraceletReady;
+
+  if (shouldOpenBraceletWindow) {
+    state.pythonBraceletWindow = true;
+    state.pythonBraceletApplied = false;
+  }
+
+  const result = previousResolvePlayerAction();
+
+  if (shouldOpenBraceletWindow && state.phase !== "player") {
+    state.pythonBraceletWindow = false;
+    state.pythonBraceletReady = false;
+  }
+
+  return result;
+};
+
+if (state.currentBattleKey) syncBattleUi();
